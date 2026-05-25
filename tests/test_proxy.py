@@ -157,7 +157,8 @@ async def test_concurrent_connections(
 
 
 async def main_async(proxy_bin: str) -> int:
-	raise_fd_limit(65535)
+	fd_limit = int(os.environ.get("FD_LIMIT", "65535"))
+	raise_fd_limit(fd_limit)
 
 	backend_server = await asyncio.start_server(
 		echo_handler,

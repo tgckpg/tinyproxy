@@ -73,27 +73,23 @@ static void event_cb(struct bufferevent *bev, short events, void *arg) {
 	(void)bev;
 }
 
-static void accept_cb(
-	struct evconnlistener *listener,
-	evutil_socket_t client_fd,
-	struct sockaddr *addr,
-	int socklen,
-	void *arg
-) {
-	(void)listener;
-
-	struct listener_ctx *ctx = arg;
-	const struct route *r = ctx->route;
-	struct event_base *base = ctx->base;
-
+static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));
 	if (conn == NULL) {
-		evutil_closesocket(client_fd);
+		evutil_closesocket(ac->fd);
 		return;
 	}
 
-	conn->client = bufferevent_socket_new(base, client_fd, BEV_OPT_CLOSE_ON_FREE);
-	conn->upstream = bufferevent_socket_new(base, -1, BEV_OPT_CLOSE_ON_FREE);
+	const struct route *r = ac->route;
+
+	conn->owner = w;
+	conn->route = r;
+
+	conn->peer_addr = ac->peer_addr;
+	conn->peer_addr_len = ac->peer_addr_len;
+
+	conn->client = bufferevent_socket_new(w->base, ac->fd, BEV_OPT_CLOSE_ON_FREE);
+	conn->upstream = bufferevent_socket_new(w->base, -1, BEV_OPT_CLOSE_ON_FREE);
 
 	if (conn->client == NULL || conn->upstream == NULL) {
 		free_conn(conn);
@@ -151,20 +147,20 @@ static void accept_cb(
 
 		memset(&local_addr, 0, sizeof(local_addr));
 
-		if (getsockname(client_fd, (struct sockaddr *)&local_addr, &local_len) < 0) {
+		if (getsockname(ac->fd, (struct sockaddr *)&local_addr, &local_len) < 0) {
 			perror("getsockname");
 			free_conn(conn);
 			return;
 		}
 
-		if (addr == NULL || socklen < (int)sizeof(struct sockaddr_in)) {
+		if (0 < ac->peer_addr_len) {
 			fprintf(stderr, "invalid client address\n");
 			free_conn(conn);
 			return;
 		}
 
-		if (((struct sockaddr *)addr)->sa_family != AF_INET ||
-		    local_addr.sin_family != AF_INET) {
+		if (ac->peer_addr.ss_family != AF_INET ||
+			local_addr.sin_family != AF_INET) {
 			fprintf(stderr, "PROXY v2 currently only supports IPv4 TCP\n");
 			free_conn(conn);
 			return;
@@ -172,8 +168,8 @@ static void accept_cb(
 
 		if (proxy_v2_write_bufferevent(
 			conn->upstream,
-			addr,
-			(socklen_t)socklen,
+			(const struct sockaddr *)&ac->peer_addr,
+			ac->peer_addr_len,
 			(struct sockaddr *)&local_addr,
 			local_len,
 			SOCK_STREAM
@@ -188,6 +184,34 @@ static void accept_cb(
 	bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
 }
 
+static void dispatch_client_fd(struct worker *w, struct accepted_client *ac) {
+	worker_adopt_client_fd(w, ac);
+}
+
+static void accept_cb(
+	struct evconnlistener *listener,
+	evutil_socket_t client_fd,
+	struct sockaddr *addr,
+	int socklen,
+	void *arg
+) {
+	(void)listener;
+
+	struct listener_ctx *ctx = arg;
+	struct accepted_client ac = {
+		.fd = client_fd,
+		.route = ctx->route,
+	};
+
+	if(addr && 0 < socklen && (size_t)socklen <= sizeof(ac.peer_addr)) {
+		memcpy(&ac.peer_addr, addr, (size_t)socklen);
+	} else {
+		ac.peer_addr_len = 0;
+	}
+
+	dispatch_client_fd(ctx->worker, &ac);
+}
+
 static void accept_error_cb(struct evconnlistener *listener, void *arg) {
 	struct event_base *base = arg;
 	int err = EVUTIL_SOCKET_ERROR();
@@ -200,63 +224,64 @@ static void accept_error_cb(struct evconnlistener *listener, void *arg) {
 }
 
 int start_tcp_route(
-    struct event_base *base,
-    const struct route *r,
-    struct listener_ctx **out)
+	struct worker *w,
+	const struct route *r,
+	struct listener_ctx **out)
 {
-    struct sockaddr_in listen_addr;
-    memset(&listen_addr, 0, sizeof(listen_addr));
-    listen_addr.sin_family = AF_INET;
-    listen_addr.sin_port = htons(r->listen_port);
+	struct sockaddr_in listen_addr;
+	memset(&listen_addr, 0, sizeof(listen_addr));
+	listen_addr.sin_family = AF_INET;
+	listen_addr.sin_port = htons(r->listen_port);
 
-    if (inet_pton(AF_INET, r->listen_host, &listen_addr.sin_addr) != 1) {
-        fprintf(stderr, "invalid listen address: %s\n", r->listen_host);
-        return -EINVAL;
-    }
+	if (inet_pton(AF_INET, r->listen_host, &listen_addr.sin_addr) != 1) {
+		fprintf(stderr, "invalid listen address: %s\n", r->listen_host);
+		return -EINVAL;
+	}
 
-    struct listener_ctx *ctx = calloc(1, sizeof(*ctx));
-    if (ctx == NULL) {
-        return -ENOMEM;
-    }
+	struct listener_ctx *ctx = calloc(1, sizeof(*ctx));
+	if (ctx == NULL) {
+		return -ENOMEM;
+	}
 
-    ctx->base = base;
-    ctx->route = r;
+	ctx->accept_base = w->base;
+	ctx->worker = w;
+	ctx->route = r;
 
-    ctx->listener = evconnlistener_new_bind(
-        base,
-        accept_cb,
-        ctx,
-        LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
-        128,
-        (struct sockaddr *)&listen_addr,
-        sizeof(listen_addr)
-    );
+	ctx->listener = evconnlistener_new_bind(
+		ctx->accept_base,
+		accept_cb,
+		ctx,
+		LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
+		128,
+		(struct sockaddr *)&listen_addr,
+		sizeof(listen_addr)
+	);
 
-    if (ctx->listener == NULL) {
-        fprintf(stderr, "evconnlistener_new_bind failed\n");
-        free(ctx);
-        return -EADDRINUSE;
-    }
+	if (ctx->listener == NULL) {
+		fprintf(stderr, "evconnlistener_new_bind failed\n");
+		free(ctx);
+		return -EADDRINUSE;
+	}
 
-    evconnlistener_set_error_cb(ctx->listener, accept_error_cb);
+	evconnlistener_set_error_cb(ctx->listener, accept_error_cb);
 
-    fprintf(stderr, "listening on %s:%u, forwarding to %s:%u\n",
-            r->listen_host, r->listen_port,
-            r->upstream_host, r->upstream_port);
+	fprintf(stderr, "listening on %s:%u, forwarding to %s:%u\n",
+			r->listen_host, r->listen_port,
+			r->upstream_host, r->upstream_port);
 
-    *out = ctx;
-    return 0;
+	*out = ctx;
+	return 0;
 }
 
 void free_tcp_route(struct listener_ctx *ctx)
 {
-    if (ctx == NULL) {
-        return;
-    }
+	if (ctx == NULL) {
+		return;
+	}
 
-    if (ctx->listener != NULL) {
-        evconnlistener_free(ctx->listener);
-    }
+	if (ctx->listener != NULL) {
+		evconnlistener_free(ctx->listener);
+	}
 
-    free(ctx);
+	free(ctx);
 }

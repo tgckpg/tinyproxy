@@ -47,7 +47,7 @@ int proxy_v2_build(
 	switch (src->sa_family) {
 	case AF_INET:
 		if (src_len < sizeof(struct sockaddr_in) ||
-		    dst_len < sizeof(struct sockaddr_in)) {
+			dst_len < sizeof(struct sockaddr_in)) {
 			return -EINVAL;
 		}
 
@@ -84,7 +84,7 @@ int proxy_v2_build(
 
 	case AF_INET6:
 		if (src_len < sizeof(struct sockaddr_in6) ||
-		    dst_len < sizeof(struct sockaddr_in6)) {
+			dst_len < sizeof(struct sockaddr_in6)) {
 			return -EINVAL;
 		}
 

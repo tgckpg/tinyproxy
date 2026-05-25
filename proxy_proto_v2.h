@@ -5,12 +5,12 @@
 
 #define PP2_VERSION_CMD_PROXY 0x21
 
-#define PP2_FAM_INET          0x10
-#define PP2_FAM_INET6         0x20
-#define PP2_FAM_UNIX          0x30
+#define PP2_FAM_INET		  0x10
+#define PP2_FAM_INET6		 0x20
+#define PP2_FAM_UNIX		  0x30
 
-#define PP2_TRANS_STREAM      0x01
-#define PP2_TRANS_DGRAM       0x02
+#define PP2_TRANS_STREAM	  0x01
+#define PP2_TRANS_DGRAM	   0x02
 
 int proxy_v2_build(
 	unsigned char *buf,

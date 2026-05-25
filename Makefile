@@ -27,8 +27,10 @@ LDFLAGS += -L$(LIBEVENT_PREFIX)/lib
 
 ifeq ($(shell uname),Darwin)
 LDFLAGS += -Wl,-dead_strip
+TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
 else
 LDFLAGS += -Wl,--gc-sections
+TEST_FLAGS :=
 endif
 
 LDLIBS += -levent_core
@@ -59,7 +61,7 @@ $(LIBEVENT_CORE_A):
 	AR=$(AR) RANLIB=$(RANLIB) $(MAKE) -C $(LIBEVENT_SRC) install
 
 test: $(BIN)
-	python3 tests/test_proxy.py $(BIN)
+	$(TEST_FLAGS) python3 tests/test_proxy.py $(BIN)
 
 clean:
 	rm -rf $(BIN_DIR)

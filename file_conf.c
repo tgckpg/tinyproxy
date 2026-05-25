@@ -44,34 +44,34 @@ static int parse_port(const char *s, uint16_t *out)
 }
 
 static int split_host_port(const char *input,
-                           char *host, size_t host_len,
-                           uint16_t *port)
+						   char *host, size_t host_len,
+						   uint16_t *port)
 {
-    const char *colon = strrchr(input, ':');
-    if (!colon) {
-        return -1;
-    }
+	const char *colon = strrchr(input, ':');
+	if (!colon) {
+		return -1;
+	}
 
-    size_t hlen = (size_t)(colon - input);
-    const char *port_s = colon + 1;
+	size_t hlen = (size_t)(colon - input);
+	const char *port_s = colon + 1;
 
-    if (hlen >= host_len || *port_s == '\0') {
-        return -1;
-    }
+	if (hlen >= host_len || *port_s == '\0') {
+		return -1;
+	}
 
-    memcpy(host, input, hlen);
-    host[hlen] = '\0';
+	memcpy(host, input, hlen);
+	host[hlen] = '\0';
 
-    if (parse_port(port_s, port) != 0) {
-        return -1;
-    }
+	if (parse_port(port_s, port) != 0) {
+		return -1;
+	}
 
-    // Allow ":80" as shorthand for all interfaces.
-    if (host[0] == '\0') {
-        snprintf(host, host_len, "0.0.0.0");
-    }
+	// Allow ":80" as shorthand for all interfaces.
+	if (host[0] == '\0') {
+		snprintf(host, host_len, "0.0.0.0");
+	}
 
-    return 0;
+	return 0;
 }
 
 static int parse_proto(const char *s, enum proto *out)

@@ -86,12 +86,17 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	struct worker w = {
+		.base = base,
+		.id = 0,
+	};
+
 	for (size_t i = 0; i < route_count; i++) {
 		const struct route *r = &routes[i];
 
 		switch (r->proto) {
 		case PROTO_TCP:
-			rc = start_tcp_route(base, r, &tcp_ctxs[tcp_ctx_count]);
+			rc = start_tcp_route(&w, r, &tcp_ctxs[tcp_ctx_count]);
 			if (rc == 0) {
 				tcp_ctx_count++;
 			}
