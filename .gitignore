@@ -2,6 +2,7 @@ bin/
 build/
 libevent2/
 *.log
+*.swp
 
 # Prerequisites
 *.d

@@ -192,13 +192,15 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 			cap = new_cap;
 		}
 
-		if (parse_route_line(line, &routes[count]) != 0) {
+		struct route *r = &routes[count];
+		if (parse_route_line(line, r) != 0) {
 			fprintf(stderr, "%s:%u: invalid route config\n", path, line_no);
 			fclose(fp);
 			free(routes);
 			return -EINVAL;
 		}
 
+		r->line_no = line_no;
 		count++;
 	}
 

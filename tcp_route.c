@@ -12,6 +12,7 @@
 
 #include "file_conf.h"
 #include "proxy_proto_v2.h"
+#include "route.h"
 #include "tcp_route.h"
 
 #define PROXY_V2_SIG "\r\n\r\n\0\r\nQUIT\n"
@@ -265,9 +266,16 @@ int start_tcp_route(
 
 	evconnlistener_set_error_cb(ctx->listener, accept_error_cb);
 
-	fprintf(stderr, "listening on %s:%u, forwarding to %s:%u\n",
-			r->listen_host, r->listen_port,
-			r->upstream_host, r->upstream_port);
+	char opts[128];
+
+	route_options_str(r, opts, sizeof(opts));
+
+	fprintf(stderr, "line %u, listening on %s:%u, forwarding to %s:%u%s%s\n",
+		r->line_no,
+		r->listen_host, r->listen_port,
+		r->upstream_host, r->upstream_port,
+		opts[0] ? ", options: " : "", opts
+	);
 
 	*out = ctx;
 	return 0;

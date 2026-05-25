@@ -9,6 +9,7 @@ PROJECT_ROOT := $(CURDIR)
 BIN_DIR := $(CURDIR)/bin
 
 SRC := proxy_proto_v2.c \
+	   route.c \
 	   tcp_route.c \
        file_conf.c \
        tinyproxy.c

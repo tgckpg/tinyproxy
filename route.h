@@ -18,6 +18,8 @@ struct route {
 
 	enum proto proto;
 	bool send_proxy_v2;
+
+	unsigned int line_no;
 };
 
 struct worker {
@@ -49,5 +51,7 @@ struct listener_ctx {
 	const struct route *route;
 	struct evconnlistener *listener;
 };
+
+void route_options_str(const struct route *r, char *buf, size_t buflen);
 
 #endif
