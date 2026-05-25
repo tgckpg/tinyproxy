@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "klog.h"
 #include "file_conf.h"
 #include "tcp_route.h"
 
@@ -30,7 +31,7 @@ int main(int argc, char **argv)
 		switch (opt) {
 		case 'c':
 			if (optarg == NULL || optarg[0] == '\0') {
-				fprintf(stderr, "missing config path after -c\n");
+				LOG_ERROR("missing config path after -c");
 				return 2;
 			}
 			conf_path = optarg;
@@ -51,7 +52,7 @@ int main(int argc, char **argv)
 	}
 
 	if (optind != argc) {
-		fprintf(stderr, "unexpected argument: %s\n", argv[optind]);
+		LOG_ERROR("unexpected argument: %s", argv[optind]);
 		usage(stderr, argv[0]);
 		return 2;
 	}
@@ -61,13 +62,12 @@ int main(int argc, char **argv)
 
 	int rc = load_routes_from_file(conf_path, &routes, &route_count);
 	if (rc != 0) {
-		fprintf(stderr, "failed to load config %s: %s\n",
-			conf_path, strerror(-rc));
+		LOG_ERROR("failed to load config %s: %s", conf_path, strerror(-rc));
 		return 1;
 	}
 
 	if (route_count == 0) {
-		fprintf(stderr, "config %s has no routes\n", conf_path);
+		LOG_ERROR("config %s has no routes", conf_path);
 		free_routes(routes);
 		return 1;
 	}
@@ -82,7 +82,7 @@ int main(int argc, char **argv)
 
 	struct event_base *base = event_base_new();
 	if (base == NULL) {
-		fprintf(stderr, "event_base_new failed\n");
+		LOG_ERROR("event_base_new failed");
 		return 1;
 	}
 
@@ -104,22 +104,21 @@ int main(int argc, char **argv)
 
 		case PROTO_UDP:
 			// rc = start_udp_route(r);
-			fprintf(stderr, "skipping udp route: Not implemented yet\n");
+			LOG_WARN("skipping udp route: Not implemented yet");
 			break;
 
 		default:
-			fprintf(stderr, "route %zu has unknown protocol\n", i);
+			LOG_ERROR("route %zu has unknown protocol", i);
 			rc = -EINVAL;
 			break;
 		}
 
 		if (rc != 0) {
-			fprintf(stderr,
-					"failed to start route %zu: %s:%u -> %s:%u: %s\n",
-					i,
-					r->listen_host, r->listen_port,
-					r->upstream_host, r->upstream_port,
-					strerror(-rc));
+			LOG_ERROR("msg=\"failed to start route\" line=%u listen_host=%s listen_port=%u upstream_host=%s upstream_port=%u",
+				r->line_no,
+				r->listen_host, r->listen_port,
+				r->upstream_host, r->upstream_port
+			);
 
 			for (size_t j = 0; j < tcp_ctx_count; j++) {
 				free_tcp_route(tcp_ctxs[j]);
@@ -143,7 +142,7 @@ int main(int argc, char **argv)
 	free_routes(routes);
 
 	if (rc != 0) {
-		fprintf(stderr, "event loop failed: %s\n", strerror(-rc));
+		LOG_ERROR("event loop failed: %s", strerror(-rc));
 		return 1;
 	}
 

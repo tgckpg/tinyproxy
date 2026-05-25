@@ -5,6 +5,7 @@
 #include <ctype.h>
 #include <errno.h>
 
+#include "klog.h"
 #include "file_conf.h"
 
 #define MAX_LINE_LEN 512
@@ -194,7 +195,7 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 
 		struct route *r = &routes[count];
 		if (parse_route_line(line, r) != 0) {
-			fprintf(stderr, "%s:%u: invalid route config\n", path, line_no);
+			LOG_ERROR("%s:%u: invalid route config", path, line_no);
 			fclose(fp);
 			free(routes);
 			return -EINVAL;

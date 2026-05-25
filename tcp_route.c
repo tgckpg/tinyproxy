@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "klog.h"
 #include "file_conf.h"
 #include "proxy_proto_v2.h"
 #include "route.h"
@@ -64,8 +65,7 @@ static void event_cb(struct bufferevent *bev, short events, void *arg) {
 	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
 		if (events & BEV_EVENT_ERROR) {
 			int err = EVUTIL_SOCKET_ERROR();
-			fprintf(stderr, "connection error: %s\n",
-					evutil_socket_error_to_string(err));
+			LOG_ERROR("connection error: %s", evutil_socket_error_to_string(err));
 		}
 
 		free_conn(conn);
@@ -119,7 +119,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	upstream_addr.sin_port = htons(r->upstream_port);
 
 	if (inet_pton(AF_INET, r->upstream_host, &upstream_addr.sin_addr) != 1) {
-		fprintf(stderr, "invalid upstream address\n");
+		LOG_ERROR("invalid upstream address");
 		free_conn(conn);
 		return;
 	}
@@ -137,7 +137,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 			(struct sockaddr *)&upstream_addr,
 			sizeof(upstream_addr)
 		) < 0) {
-		fprintf(stderr, "upstream connect failed\n");
+		LOG_ERROR("upstream connect failed");
 		free_conn(conn);
 		return;
 	}
@@ -155,14 +155,14 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 		}
 
 		if (0 < ac->peer_addr_len) {
-			fprintf(stderr, "invalid client address\n");
+			LOG_ERROR("invalid client address");
 			free_conn(conn);
 			return;
 		}
 
 		if (ac->peer_addr.ss_family != AF_INET ||
 			local_addr.sin_family != AF_INET) {
-			fprintf(stderr, "PROXY v2 currently only supports IPv4 TCP\n");
+			LOG_ERROR("PROXY v2 currently only supports IPv4 TCP");
 			free_conn(conn);
 			return;
 		}
@@ -175,7 +175,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 			local_len,
 			SOCK_STREAM
 		) < 0) {
-			fprintf(stderr, "failed to write PROXY v2 header\n");
+			LOG_ERROR("failed to write PROXY v2 header");
 			free_conn(conn);
 			return;
 		}
@@ -217,8 +217,7 @@ static void accept_error_cb(struct evconnlistener *listener, void *arg) {
 	struct event_base *base = arg;
 	int err = EVUTIL_SOCKET_ERROR();
 
-	fprintf(stderr, "accept error: %s\n",
-			evutil_socket_error_to_string(err));
+	LOG_ERROR("accept error: %s", evutil_socket_error_to_string(err));
 
 	evconnlistener_free(listener);
 	event_base_loopexit(base, NULL);
@@ -235,7 +234,7 @@ int start_tcp_route(
 	listen_addr.sin_port = htons(r->listen_port);
 
 	if (inet_pton(AF_INET, r->listen_host, &listen_addr.sin_addr) != 1) {
-		fprintf(stderr, "invalid listen address: %s\n", r->listen_host);
+		LOG_ERROR("invalid listen address: %s", r->listen_host);
 		return -EINVAL;
 	}
 
@@ -259,7 +258,7 @@ int start_tcp_route(
 	);
 
 	if (ctx->listener == NULL) {
-		fprintf(stderr, "evconnlistener_new_bind failed\n");
+		LOG_ERROR("evconnlistener_new_bind failed");
 		free(ctx);
 		return -EADDRINUSE;
 	}
@@ -270,11 +269,12 @@ int start_tcp_route(
 
 	route_options_str(r, opts, sizeof(opts));
 
-	fprintf(stderr, "line %u, listening on %s:%u, forwarding to %s:%u%s%s\n",
+	LOG_INFO("msg=\"route started\" line=%u listen_host=%s listen_port=%u upstream_host=%s upstream_port=%u%s%s",
 		r->line_no,
 		r->listen_host, r->listen_port,
 		r->upstream_host, r->upstream_port,
-		opts[0] ? ", options: " : "", opts
+		opts[0] ? " options=" : "",
+		opts[0] ? opts : ""
 	);
 
 	*out = ctx;

@@ -8,7 +8,8 @@ STRIP ?= strip
 PROJECT_ROOT := $(CURDIR)
 BIN_DIR := $(CURDIR)/bin
 
-SRC := proxy_proto_v2.c \
+SRC := klog.c \
+	   proxy_proto_v2.c \
 	   route.c \
 	   tcp_route.c \
        file_conf.c \
@@ -18,33 +19,39 @@ BIN := $(BIN_DIR)/tinyproxy
 
 BUILD_DIR := $(PROJECT_ROOT)/build
 
-LIBEVENT_SRC := $(PROJECT_ROOT)/libevent2
+# Optional. Set this only when you want to build vendored libevent.
+# Example:
+#   make LIBEVENT_SRC=$(PROJECT_ROOT)/libevent2
+LIBEVENT_SRC ?=
+
 LIBEVENT_PREFIX := $(BUILD_DIR)/libevent-install
 LIBEVENT_CORE_A := $(LIBEVENT_PREFIX)/lib/libevent_core.a
 
 CFLAGS ?= -Os -Wall -Wextra -ffunction-sections -fdata-sections
-CPPFLAGS += -I$(LIBEVENT_PREFIX)/include
-LDFLAGS += -L$(LIBEVENT_PREFIX)/lib
 
-ifeq ($(shell uname),Darwin)
-LDFLAGS += -Wl,-dead_strip
-TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
+ifeq ($(strip $(LIBEVENT_SRC)),)
+# System libevent, e.g. Alpine libevent-dev
+LIBEVENT_CPPFLAGS := $(shell pkg-config --cflags libevent_core)
+LIBEVENT_LDFLAGS  := $(shell pkg-config --libs-only-L libevent_core)
+LIBEVENT_LDLIBS   := $(shell pkg-config --libs-only-l --libs-only-other libevent_core)
+LIBEVENT_DEPS     :=
 else
-LDFLAGS += -Wl,--gc-sections
-TEST_FLAGS :=
+# Vendored libevent
+LIBEVENT_CPPFLAGS := -I$(LIBEVENT_PREFIX)/include
+LIBEVENT_LDFLAGS  := -L$(LIBEVENT_PREFIX)/lib
+LIBEVENT_LDLIBS   := -levent_core
+LIBEVENT_DEPS     := $(LIBEVENT_CORE_A)
 endif
 
-LDLIBS += -levent_core
+CPPFLAGS += $(LIBEVENT_CPPFLAGS)
+LDFLAGS  += $(LIBEVENT_LDFLAGS)
+LDLIBS   += $(LIBEVENT_LDLIBS)
 
-all: $(BIN)
-
-$(BIN): $(SRC) $(LIBEVENT_CORE_A)
+$(BIN): $(SRC) $(LIBEVENT_DEPS)
 	mkdir -p $(BIN_DIR)
 	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ $(SRC) $(LDFLAGS) $(LDLIBS)
 
-strip: $(BIN)
-	$(STRIP) $(BIN)
-
+ifneq ($(strip $(LIBEVENT_SRC)),)
 $(LIBEVENT_CORE_A):
 	cd $(LIBEVENT_SRC) && \
 		AR=$(AR) RANLIB=$(RANLIB) ./configure \
@@ -60,6 +67,20 @@ $(LIBEVENT_CORE_A):
 		--disable-shared
 	AR=$(AR) RANLIB=$(RANLIB) $(MAKE) -C $(LIBEVENT_SRC)
 	AR=$(AR) RANLIB=$(RANLIB) $(MAKE) -C $(LIBEVENT_SRC) install
+endif
+
+ifeq ($(shell uname),Darwin)
+LDFLAGS += -Wl,-dead_strip
+TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
+else
+LDFLAGS += -Wl,--gc-sections
+TEST_FLAGS :=
+endif
+
+all: $(BIN)
+
+strip: $(BIN)
+	$(STRIP) $(BIN)
 
 test: $(BIN)
 	$(TEST_FLAGS) python3 tests/test_proxy.py $(BIN)
