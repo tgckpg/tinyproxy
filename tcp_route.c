@@ -11,7 +11,10 @@
 #include <string.h>
 
 #include "file_conf.h"
+#include "proxy_proto_v2.h"
 #include "tcp_route.h"
+
+#define PROXY_V2_SIG "\r\n\r\n\0\r\nQUIT\n"
 
 static void free_conn(conn_t *conn) {
 	if (conn == NULL) {
@@ -78,8 +81,6 @@ static void accept_cb(
 	void *arg
 ) {
 	(void)listener;
-	(void)addr;
-	(void)socklen;
 
 	struct listener_ctx *ctx = arg;
 	const struct route *r = ctx->route;
@@ -126,6 +127,14 @@ static void accept_cb(
 		return;
 	}
 
+	/*
+	 * Do not read from the client yet.
+	 *
+	 * Otherwise client bytes may be copied into the upstream output buffer
+	 * before the PROXY v2 header is queued.
+	 */
+	bufferevent_disable(conn->client, EV_READ);
+
 	if (bufferevent_socket_connect(
 			conn->upstream,
 			(struct sockaddr *)&upstream_addr,
@@ -136,14 +145,47 @@ static void accept_cb(
 		return;
 	}
 
-	/*
-	 * Important:
-	 * The upstream connection is async. libevent will emit BEV_EVENT_CONNECTED
-	 * later. This simple proxy enables client reading immediately.
-	 *
-	 * For PROXY v2, we need to write the PROXY header to
-	 * conn->upstream output before forwarding client bytes.
-	 */
+	if (r->send_proxy_v2) {
+		struct sockaddr_in local_addr;
+		socklen_t local_len = sizeof(local_addr);
+
+		memset(&local_addr, 0, sizeof(local_addr));
+
+		if (getsockname(client_fd, (struct sockaddr *)&local_addr, &local_len) < 0) {
+			perror("getsockname");
+			free_conn(conn);
+			return;
+		}
+
+		if (addr == NULL || socklen < (int)sizeof(struct sockaddr_in)) {
+			fprintf(stderr, "invalid client address\n");
+			free_conn(conn);
+			return;
+		}
+
+		if (((struct sockaddr *)addr)->sa_family != AF_INET ||
+		    local_addr.sin_family != AF_INET) {
+			fprintf(stderr, "PROXY v2 currently only supports IPv4 TCP\n");
+			free_conn(conn);
+			return;
+		}
+
+		if (proxy_v2_write_bufferevent(
+			conn->upstream,
+			addr,
+			(socklen_t)socklen,
+			(struct sockaddr *)&local_addr,
+			local_len,
+			SOCK_STREAM
+		) < 0) {
+			fprintf(stderr, "failed to write PROXY v2 header\n");
+			free_conn(conn);
+			return;
+		}
+	}
+
+	bufferevent_enable(conn->client, EV_READ | EV_WRITE);
+	bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
 }
 
 static void accept_error_cb(struct evconnlistener *listener, void *arg) {

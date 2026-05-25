@@ -8,7 +8,8 @@ STRIP ?= strip
 PROJECT_ROOT := $(CURDIR)
 BIN_DIR := $(CURDIR)/bin
 
-SRC := tcp_route.c \
+SRC := proxy_proto_v2.c \
+	   tcp_route.c \
        file_conf.c \
        tinyproxy.c
 
