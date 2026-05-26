@@ -16,6 +16,9 @@
 #include "route.h"
 #include "tcp_route.h"
 
+#define BEV_READ_HIGH_WATER (256 * 1024)
+#define BEV_WRITE_RESUME_WATER (128 * 1024)
+
 struct tcp_route_ctx {
 	struct event_base *accept_base;
 	struct worker *worker;
@@ -57,9 +60,9 @@ static void free_conn(conn_t *conn) {
 	free(conn);
 }
 
-static void pipe_read_cb(struct bufferevent *src, void *arg) {
+static void pipe_read_cb(struct bufferevent *src, void *arg)
+{
 	conn_t *conn = arg;
-
 	struct bufferevent *dst;
 
 	if (src == conn->client) {
@@ -74,6 +77,30 @@ static void pipe_read_cb(struct bufferevent *src, void *arg) {
 	struct evbuffer *output = bufferevent_get_output(dst);
 
 	evbuffer_add_buffer(output, input);
+
+	if (evbuffer_get_length(output) >= BEV_READ_HIGH_WATER) {
+		bufferevent_disable(src, EV_READ);
+	}
+}
+
+static void pipe_write_cb(struct bufferevent *dst, void *arg)
+{
+	conn_t *conn = arg;
+	struct bufferevent *src;
+
+	if (dst == conn->client) {
+		src = conn->upstream;
+	} else if (dst == conn->upstream) {
+		src = conn->client;
+	} else {
+		return;
+	}
+
+	struct evbuffer *output = bufferevent_get_output(dst);
+
+	if (evbuffer_get_length(output) < BEV_WRITE_RESUME_WATER) {
+		bufferevent_enable(src, EV_READ);
+	}
 }
 
 static void event_cb(struct bufferevent *bev, short events, void *arg) {
@@ -137,10 +164,13 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 		return;
 	}
 
+	bufferevent_setwatermark(conn->client, EV_READ, 0, BEV_READ_HIGH_WATER);
+	bufferevent_setwatermark(conn->upstream, EV_READ, 0, BEV_READ_HIGH_WATER);
+
 	bufferevent_setcb(
 		conn->client,
 		pipe_read_cb,
-		NULL,
+		pipe_write_cb,
 		event_cb,
 		conn
 	);
@@ -148,7 +178,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	bufferevent_setcb(
 		conn->upstream,
 		pipe_read_cb,
-		NULL,
+		pipe_write_cb,
 		event_cb,
 		conn
 	);
@@ -259,14 +289,15 @@ static void accept_cb(
 	dispatch_client_fd(ctx->worker, &ac);
 }
 
-static void accept_error_cb(struct evconnlistener *listener, void *arg) {
-	struct event_base *base = arg;
+static void accept_error_cb(struct evconnlistener *listener, void *arg)
+{
+	struct tcp_route_ctx *ctx = arg;
 	int err = EVUTIL_SOCKET_ERROR();
 
 	LOG_ERROR("accept error", "err", _LOGV(evutil_socket_error_to_string(err)));
 
-	evconnlistener_free(listener);
-	event_base_loopexit(base, NULL);
+	evconnlistener_disable(listener);
+	event_base_loopexit(ctx->accept_base, NULL);
 }
 
 int start_tcp_route(
