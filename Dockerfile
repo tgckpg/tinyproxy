@@ -8,10 +8,10 @@ WORKDIR /src
 
 COPY [ "*.c", "*.h", "*.conf", "Makefile", "/src" ]
 
-RUN make all
+RUN make all STATIC=1
 
 COPY tests ./tests
-RUN STATIC=1 make test
+RUN make test STATIC=1
 
 RUN cp /src/tinyproxy.conf /etc/ && cp /src/bin/tinyproxy /usr/bin/
 
@@ -20,6 +20,5 @@ FROM scratch
 COPY --from=build /src/bin/tinyproxy /usr/bin/tinyproxy
 COPY --from=build /src/tinyproxy.conf /etc/tinyproxy.conf
 
-RUN /usr/bin/tinyproxy
-
-CMD [ "tinyproxy", "-c", "/etc/tinyproxy.conf" ]
+ENTRYPOINT ["/usr/bin/tinyproxy"]
+CMD ["-c", "/etc/tinyproxy.conf"]

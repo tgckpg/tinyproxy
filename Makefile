@@ -1,18 +1,18 @@
 export
 
 CC ?= cc
-AR := /usr/bin/ar
-RANLIB := /usr/bin/ranlib
+AR ?= ar
+RANLIB ?= ranlib
 STRIP ?= strip
-STATIC ?= 1
 
 PROJECT_ROOT := $(CURDIR)
 BIN_DIR := $(CURDIR)/bin
 
 SRC := klog.c \
-	   proxy_proto_v2.c \
-	   route.c \
-	   tcp_route.c \
+       proxy_proto_v2.c \
+       signal.c \
+       route.c \
+       tcp_route.c \
        file_conf.c \
        tinyproxy.c
 
@@ -20,29 +20,37 @@ BIN := $(BIN_DIR)/tinyproxy
 
 BUILD_DIR := $(PROJECT_ROOT)/build
 
-# Optional. Set this only when you want to build vendored libevent.
-# Example:
-#   make LIBEVENT_SRC=$(PROJECT_ROOT)/libevent2
 LIBEVENT_SRC ?=
-
 LIBEVENT_PREFIX := $(BUILD_DIR)/libevent-install
 LIBEVENT_CORE_A := $(LIBEVENT_PREFIX)/lib/libevent_core.a
 
 CFLAGS ?= -Os -Wall -Wextra -ffunction-sections -fdata-sections
 
+UNAME_S := $(shell uname)
+
+ifeq ($(UNAME_S),Darwin)
+STATIC ?= 0
+LDFLAGS += -Wl,-dead_strip
+TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
+else
+STATIC ?= 1
+LDFLAGS += -Wl,--gc-sections
+TEST_FLAGS :=
+endif
+
 ifeq ($(STATIC),1)
 LDFLAGS += -static
 PKG_CONFIG_STATIC := --static
+else
+PKG_CONFIG_STATIC :=
 endif
 
 ifeq ($(strip $(LIBEVENT_SRC)),)
-# System libevent, statically linked
 LIBEVENT_CPPFLAGS := $(shell pkg-config --cflags libevent_core)
 LIBEVENT_LDFLAGS  :=
-LIBEVENT_LDLIBS   := $(shell pkg-config --static --libs libevent_core)
+LIBEVENT_LDLIBS   := $(shell pkg-config $(PKG_CONFIG_STATIC) --libs libevent_core)
 LIBEVENT_DEPS     :=
 else
-# Vendored libevent
 LIBEVENT_CPPFLAGS := -I$(LIBEVENT_PREFIX)/include
 LIBEVENT_LDFLAGS  := -L$(LIBEVENT_PREFIX)/lib
 LIBEVENT_LDLIBS   := -levent_core
@@ -50,8 +58,10 @@ LIBEVENT_DEPS     := $(LIBEVENT_CORE_A)
 endif
 
 CPPFLAGS += $(LIBEVENT_CPPFLAGS)
-LDFLAGS  += -static $(LIBEVENT_LDFLAGS)
+LDFLAGS  += $(LIBEVENT_LDFLAGS)
 LDLIBS   += $(LIBEVENT_LDLIBS)
+
+all: $(BIN)
 
 $(BIN): $(SRC) $(LIBEVENT_DEPS)
 	mkdir -p $(BIN_DIR)
@@ -75,18 +85,12 @@ $(LIBEVENT_CORE_A):
 	AR=$(AR) RANLIB=$(RANLIB) $(MAKE) -C $(LIBEVENT_SRC) install
 endif
 
-ifeq ($(shell uname),Darwin)
-LDFLAGS += -Wl,-dead_strip
-TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
-else
-LDFLAGS += -Wl,--gc-sections
-TEST_FLAGS :=
-endif
-
-all: $(BIN)
-
 strip: $(BIN)
+ifeq ($(UNAME_S),Darwin)
+	$(error strip target is not supported on macOS; build without stripping, or strip inside the Linux/Alpine container)
+else
 	$(STRIP) $(BIN)
+endif
 
 test: $(BIN)
 	$(TEST_FLAGS) python3 tests/test_proxy.py $(BIN)

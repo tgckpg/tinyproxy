@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "klog.h"
+#include "signal.h"
 #include "file_conf.h"
 #include "tcp_route.h"
 
@@ -86,6 +87,15 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	struct signal_events signals;
+
+	if (setup_signal_handlers(base, &signals) != 0) {
+		LOG_ERROR("failed to setup signal handlers");
+		event_base_free(base);
+		free_routes(routes);
+		return 1;
+	}
+
 	struct worker w = {
 		.base = base,
 		.id = 0,
@@ -137,6 +147,7 @@ int main(int argc, char **argv)
 		free_tcp_route(tcp_ctxs[i]);
 	}
 
+	free_signal_handlers(&signals);
 	free(tcp_ctxs);
 	event_base_free(base);
 	free_routes(routes);
