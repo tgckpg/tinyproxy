@@ -214,8 +214,6 @@ jobs:
     needs:
       - linux-musl-x86_64
       - linux-musl-arm64
-      - macos
-      - windows
 
     permissions:
       contents: read
@@ -224,13 +222,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: docker-artifacts
+          pattern: tinyproxy-Linux-*
+          merge-multiple: true
+
+      - name: Prepare Docker rootfs
+        run: |
+          mkdir -p rootfs-amd64 rootfs-arm64
+
+          mkdir -p tmp/amd64 tmp/arm64
+
+          tar -xzf docker-artifacts/tinyproxy-Linux-X64.tar.gz -C tmp/amd64
+          tar -xzf docker-artifacts/tinyproxy-Linux-ARM64.tar.gz -C tmp/arm64
+
+          mkdir -p rootfs-amd64/usr/bin rootfs-amd64/etc
+          mkdir -p rootfs-arm64/usr/bin rootfs-arm64/etc
+
+          cp tmp/amd64/tinyproxy/tinyproxy rootfs-amd64/usr/bin/tinyproxy
+          cp tmp/amd64/tinyproxy/tinyproxy.conf rootfs-amd64/etc/tinyproxy.conf
+
+          cp tmp/arm64/tinyproxy/tinyproxy rootfs-arm64/usr/bin/tinyproxy
+          cp tmp/arm64/tinyproxy/tinyproxy.conf rootfs-arm64/etc/tinyproxy.conf
+
+          chmod 0755 rootfs-amd64/usr/bin/tinyproxy
+          chmod 0755 rootfs-arm64/usr/bin/tinyproxy
+
+          file rootfs-amd64/usr/bin/tinyproxy
+          file rootfs-arm64/usr/bin/tinyproxy
+
       - name: Set image name
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY}"
           echo "IMAGE_NAME=${image,,}" >> "$GITHUB_ENV"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -246,7 +272,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./Dockerfile
+          file: ./github.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
