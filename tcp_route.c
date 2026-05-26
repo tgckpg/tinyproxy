@@ -4,7 +4,6 @@
 #include <event2/listener.h>
 #include <event2/util.h>
 
-#include <arpa/inet.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,6 +11,7 @@
 
 #include "klog.h"
 #include "file_conf.h"
+#include "compat_socket.h"
 #include "proxy_proto_v2.h"
 #include "route.h"
 #include "tcp_route.h"

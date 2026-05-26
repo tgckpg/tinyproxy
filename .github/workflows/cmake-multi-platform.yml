@@ -31,8 +31,14 @@ jobs:
 
       - name: Verify static binary
         run: |
+          apk add --no-cache pax-utils
           file bin/tinyproxy
-          ldd bin/tinyproxy && exit 1 || true
+          scanelf -n bin/tinyproxy
+
+          if scanelf -n bin/tinyproxy | grep -q 'lib'; then
+            echo "binary has dynamic library dependencies"
+            exit 1
+          fi
 
       - name: Test
         run: make test
@@ -60,8 +66,14 @@ jobs:
 
       - name: Verify static binary
         run: |
+          apk add --no-cache pax-utils
           file bin/tinyproxy
-          ldd bin/tinyproxy && exit 1 || true
+          scanelf -n bin/tinyproxy
+
+          if scanelf -n bin/tinyproxy | grep -q 'lib'; then
+            echo "binary has dynamic library dependencies"
+            exit 1
+          fi
 
       - name: Test
         run: make test
@@ -89,10 +101,6 @@ jobs:
     runs-on: windows-2022
     continue-on-error: true
 
-    defaults:
-      run:
-        shell: msys2 {0}
-
     steps:
       - uses: actions/checkout@v4
 
@@ -104,11 +112,17 @@ jobs:
           install: >-
             base-devel
             mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
             mingw-w64-ucrt-x86_64-libevent
             mingw-w64-ucrt-x86_64-python
 
       - name: Build
-        run: make clean all STATIC=0
+        shell: msys2 {0}
+        run: |
+          make clean
+          make all
 
       - name: Test
-        run: make test
+        shell: msys2 {0}
+        run: |
+          make test

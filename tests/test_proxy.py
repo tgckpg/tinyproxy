@@ -2,18 +2,25 @@
 
 import asyncio
 import os
-import resource
 import signal
 import subprocess
 import sys
 import time
 import tempfile
 
+try:
+	import resource
+except ImportError:
+	resource = None
+
 LISTEN_HOST = "127.0.0.1"
 PROXY_PORT = 31232
 BACKEND_PORT = 41232
 
 def raise_fd_limit(wanted: int) -> None:
+	if resource is None:
+		return
+
 	soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
 
 	if soft >= wanted:

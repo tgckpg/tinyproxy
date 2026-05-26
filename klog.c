@@ -2,8 +2,23 @@
 
 #include <stdarg.h>
 #include <stdio.h>
-#include <time.h>
+#include <string.h>
 #include <unistd.h>
+
+#ifdef _WIN32
+#include <time.h>
+#else
+#include <time.h>
+#endif
+
+static int localtime_compat(const time_t *t, struct tm *out)
+{
+#ifdef _WIN32
+	return localtime_s(out, t);
+#else
+	return localtime_r(t, out) == NULL ? -1 : 0;
+#endif
+}
 
 static void print_quoted_value(const char *s)
 {
@@ -77,7 +92,9 @@ void log_at(char sev, const char *file, int line, const char *msg, ...)
 	char tbuf[32];
 
 	clock_gettime(CLOCK_REALTIME, &ts);
-	localtime_r(&ts.tv_sec, &tm);
+	if (localtime_compat(&ts.tv_sec, &tm) != 0) {
+		memset(&tm, 0, sizeof(tm));
+	}
 
 	strftime(tbuf, sizeof(tbuf), "%m%d %H:%M:%S", &tm);
 

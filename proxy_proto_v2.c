@@ -3,9 +3,8 @@
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
 
+#include "compat_socket.h"
 #include "proxy_proto_v2.h"
 
 static void put_u16(unsigned char *p, uint16_t v)

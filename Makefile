@@ -4,9 +4,11 @@ CC ?= cc
 AR ?= ar
 RANLIB ?= ranlib
 STRIP ?= strip
+PKG_CONFIG ?= pkg-config
 
 PROJECT_ROOT := $(CURDIR)
 BIN_DIR := $(CURDIR)/bin
+BUILD_DIR := $(PROJECT_ROOT)/build
 
 SRC := klog.c \
        proxy_proto_v2.c \
@@ -16,9 +18,15 @@ SRC := klog.c \
        file_conf.c \
        tinyproxy.c
 
-BIN := $(BIN_DIR)/tinyproxy
+EXEEXT :=
+WINDOWS_LDLIBS :=
 
-BUILD_DIR := $(PROJECT_ROOT)/build
+ifeq ($(OS),Windows_NT)
+EXEEXT := .exe
+WINDOWS_LDLIBS += -lws2_32
+endif
+
+BIN := $(BIN_DIR)/tinyproxy$(EXEEXT)
 
 LIBEVENT_SRC ?=
 LIBEVENT_PREFIX := $(BUILD_DIR)/libevent-install
@@ -32,6 +40,10 @@ ifeq ($(UNAME_S),Darwin)
 STATIC ?= 0
 LDFLAGS += -Wl,-dead_strip
 TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
+else ifeq ($(OS),Windows_NT)
+STATIC ?= 0
+LDFLAGS += -Wl,--gc-sections
+TEST_FLAGS :=
 else
 STATIC ?= 1
 LDFLAGS += -Wl,--gc-sections
@@ -46,9 +58,9 @@ PKG_CONFIG_STATIC :=
 endif
 
 ifeq ($(strip $(LIBEVENT_SRC)),)
-LIBEVENT_CPPFLAGS := $(shell pkg-config --cflags libevent_core)
+LIBEVENT_CPPFLAGS := $(shell $(PKG_CONFIG) --cflags libevent_core 2>/dev/null)
 LIBEVENT_LDFLAGS  :=
-LIBEVENT_LDLIBS   := $(shell pkg-config $(PKG_CONFIG_STATIC) --libs libevent_core)
+LIBEVENT_LDLIBS   := $(shell $(PKG_CONFIG) $(PKG_CONFIG_STATIC) --libs libevent_core 2>/dev/null)
 LIBEVENT_DEPS     :=
 else
 LIBEVENT_CPPFLAGS := -I$(LIBEVENT_PREFIX)/include
@@ -60,6 +72,7 @@ endif
 CPPFLAGS += $(LIBEVENT_CPPFLAGS)
 LDFLAGS  += $(LIBEVENT_LDFLAGS)
 LDLIBS   += $(LIBEVENT_LDLIBS)
+LDLIBS   += $(WINDOWS_LDLIBS)
 
 all: $(BIN)
 
