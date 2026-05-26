@@ -15,7 +15,6 @@
 #include "udp_route.h"
 
 #define UDP_MAX_PACKET 65535
-#define UDP_CLIENT_IDLE_TIMEOUT_SEC 60
 
 struct udp_route_ctx;
 
@@ -89,7 +88,7 @@ static void cleanup_idle_udp_clients(struct udp_route_ctx *ctx)
 	while (*pp != NULL) {
 		struct udp_client *c = *pp;
 
-		if (now - c->last_seen <= UDP_CLIENT_IDLE_TIMEOUT_SEC) {
+		if (now - c->last_seen <= ctx->route->opts.idle_timeout_sec) {
 			pp = &c->next;
 			continue;
 		}
@@ -263,7 +262,7 @@ static int send_udp_payload_to_upstream(
 	struct udp_route_ctx *ctx = c->ctx;
 	const struct route *r = ctx->route;
 
-	if (!r->send_proxy_v2) {
+	if (!r->opts.proxy_v2) {
 		ssize_t sent = send(c->fd, (const char *)payload, payload_len, 0);
 		if (sent < 0) {
 			return -EVUTIL_SOCKET_ERROR();
@@ -491,7 +490,7 @@ int start_udp_route(
 
 	char opts[128];
 
-	route_options_str(r, opts, sizeof(opts));
+	route_options_str(&r->opts, opts, sizeof(opts));
 
 	LOG_INFO("udp route started",
 		"line", _LOGV(r->line_no),

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 
 #include "klog.h"
 #include "file_conf.h"
@@ -90,19 +91,123 @@ static int parse_proto(const char *s, enum proto *out)
 	return -1;
 }
 
+static int parse_positive_int(const char *s, int *out)
+{
+	char *end = NULL;
+	long v;
+
+	if (s == NULL || *s == '\0') {
+		return -EINVAL;
+	}
+
+	errno = 0;
+	v = strtol(s, &end, 10);
+	if (errno != 0 || end == s || *end != '\0') {
+		return -EINVAL;
+	}
+
+	if (v <= 0 || v > INT_MAX) {
+		return -ERANGE;
+	}
+
+	*out = (int)v;
+	return 0;
+}
+
+static int parse_route_options(char *s, struct route_options *opts)
+{
+	char *saveptr = NULL;
+	char *tok;
+
+	if (s == NULL || *s == '\0') {
+		return 0;
+	}
+
+#define PARSE_INT_OPT(name, field) do { \
+		if (strcmp(key, name) == 0) { \
+			int rc = parse_positive_int(value, &opts->field); \
+			if (rc != 0) { \
+				return rc; \
+			} \
+			goto next_option; \
+		} \
+	} while (0)
+
+#define PARSE_BOOL_OPT(name, field) do { \
+		if (strcmp(tok, name) == 0) { \
+			opts->field = true; \
+			goto next_option; \
+		} \
+	} while (0)
+
+	for (tok = strtok_r(s, ",", &saveptr);
+	     tok != NULL;
+	     tok = strtok_r(NULL, ",", &saveptr)) {
+		char *eq;
+
+		tok = trim(tok);
+		if (*tok == '\0') {
+			return -EINVAL;
+		}
+
+		eq = strchr(tok, '=');
+
+		if (eq != NULL) {
+			const char *key;
+			const char *value;
+
+			*eq = '\0';
+			key = trim(tok);
+			value = trim(eq + 1);
+
+			if (*key == '\0' || *value == '\0') {
+				return -EINVAL;
+			}
+
+			PARSE_INT_OPT("idle_timeout", idle_timeout_sec);
+			PARSE_INT_OPT("connect_timeout", connect_timeout_sec);
+
+			return -EINVAL;
+		}
+
+		PARSE_BOOL_OPT("proxy_v2", proxy_v2);
+		PARSE_BOOL_OPT("keep_alive", keep_alive);
+
+		return -EINVAL;
+
+next_option:
+		continue;
+	}
+
+#undef PARSE_BOOL_OPT
+#undef PARSE_INT_OPT
+
+	return 0;
+}
+
+static inline void route_options_set_defaults(struct route_options *opts)
+{
+	opts->proxy_v2 = false;
+	opts->keep_alive = false;
+	opts->idle_timeout_sec = ROUTE_DEFAULT_IDLE_TIMEOUT_SEC;
+	opts->connect_timeout_sec = ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC;
+}
+
 static int parse_route_line(char *line, struct route *route)
 {
 	char *fields[4] = {0};
 	size_t count = 0;
+	char *saveptr = NULL;
+	char *tok;
 
-	char *tok = strtok(line, " \t");
-	while (tok && count < 4) {
+	tok = strtok_r(line, " \t\r\n", &saveptr);
+	while (tok != NULL) {
+		if (count >= 4) {
+			return -1; // too many fields
+		}
+
 		fields[count++] = tok;
-		tok = strtok(NULL, " \t");
-	}
-
-	if (tok != NULL) {
-		return -1; // too many fields
+		tok = strtok_r(NULL, " \t\r\n", &saveptr);
 	}
 
 	if (count < 3) {
@@ -110,16 +215,17 @@ static int parse_route_line(char *line, struct route *route)
 	}
 
 	memset(route, 0, sizeof(*route));
+	route_options_set_defaults(&route->opts);
 
 	if (split_host_port(fields[0],
-						route->listen_host, sizeof(route->listen_host),
-						&route->listen_port) != 0) {
+	                    route->listen_host, sizeof(route->listen_host),
+	                    &route->listen_port) != 0) {
 		return -1;
 	}
 
 	if (split_host_port(fields[1],
-						route->upstream_host, sizeof(route->upstream_host),
-						&route->upstream_port) != 0) {
+	                    route->upstream_host, sizeof(route->upstream_host),
+	                    &route->upstream_port) != 0) {
 		return -1;
 	}
 
@@ -127,14 +233,8 @@ static int parse_route_line(char *line, struct route *route)
 		return -1;
 	}
 
-	route->send_proxy_v2 = false;
-
-	if (count == 4) {
-		if (strcmp(fields[3], "proxy_v2") != 0) {
-			return -1;
-		}
-
-		route->send_proxy_v2 = true;
+	if (count == 4 && parse_route_options(fields[3], &route->opts) != 0) {
+		return -1;
 	}
 
 	return 0;
@@ -193,9 +293,15 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 			cap = new_cap;
 		}
 
+		char original[MAX_LINE_LEN];
+		snprintf(original, sizeof(original), "%s", line);
+
 		struct route *r = &routes[count];
 		if (parse_route_line(line, r) != 0) {
-			LOG_ERROR("invalid route config", "path", _LOGV(path), "line", _LOGV(line_no));
+			LOG_ERROR("invalid route config",
+					"path", _LOGV(path),
+					"line", _LOGV(line_no),
+					"text", _LOGV(original));
 			fclose(fp);
 			free(routes);
 			return -EINVAL;

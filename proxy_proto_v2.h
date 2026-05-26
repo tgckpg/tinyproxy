@@ -12,6 +12,8 @@
 #define PP2_TRANS_STREAM	  0x01
 #define PP2_TRANS_DGRAM	   0x02
 
+struct bufferevent;
+
 int proxy_v2_build(
 	unsigned char *buf,
 	size_t buf_len,

@@ -165,7 +165,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 		return;
 	}
 
-	if (r->send_proxy_v2) {
+	if (r->opts.proxy_v2) {
 		struct sockaddr_in local_addr;
 		socklen_t local_len = sizeof(local_addr);
 
@@ -295,7 +295,7 @@ int start_tcp_route(
 
 	char opts[128];
 
-	route_options_str(r, opts, sizeof(opts));
+	route_options_str(&r->opts, opts, sizeof(opts));
 
 	LOG_INFO("route started",
 		"line", _LOGV(r->line_no),
