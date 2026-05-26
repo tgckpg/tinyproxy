@@ -1,10 +1,86 @@
 #ifndef KLOG_H
 #define KLOG_H
 
-void log_at(char sev, const char *file, int line, const char *fmt, ...);
+#include <stdint.h>
 
-#define LOG_INFO(...)  log_at('I', __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_WARN(...)  log_at('W', __FILE__, __LINE__, __VA_ARGS__)
-#define LOG_ERROR(...) log_at('E', __FILE__, __LINE__, __VA_ARGS__)
+enum log_value_type {
+	LOG_VALUE_STR = 1,
+	LOG_VALUE_INT,
+	LOG_VALUE_UINT,
+	LOG_VALUE_LONG,
+	LOG_VALUE_ULONG,
+	LOG_VALUE_LLONG,
+	LOG_VALUE_ULLONG,
+};
+
+struct log_value {
+	enum log_value_type type;
+	union {
+		const char *s;
+		int i;
+		unsigned int u;
+		long l;
+		unsigned long ul;
+		long long ll;
+		unsigned long long ull;
+	} v;
+};
+
+void log_at(char sev, const char *file, int line, const char *msg, ...);
+
+static inline struct log_value log_value_str(const char *v)
+{
+	return (struct log_value){ LOG_VALUE_STR, { .s = v } };
+}
+
+static inline struct log_value log_value_int(int v)
+{
+	return (struct log_value){ LOG_VALUE_INT, { .i = v } };
+}
+
+static inline struct log_value log_value_uint(unsigned int v)
+{
+	return (struct log_value){ LOG_VALUE_UINT, { .u = v } };
+}
+
+static inline struct log_value log_value_long(long v)
+{
+	return (struct log_value){ LOG_VALUE_LONG, { .l = v } };
+}
+
+static inline struct log_value log_value_ulong(unsigned long v)
+{
+	return (struct log_value){ LOG_VALUE_ULONG, { .ul = v } };
+}
+
+static inline struct log_value log_value_llong(long long v)
+{
+	return (struct log_value){ LOG_VALUE_LLONG, { .ll = v } };
+}
+
+static inline struct log_value log_value_ullong(unsigned long long v)
+{
+	return (struct log_value){ LOG_VALUE_ULLONG, { .ull = v } };
+}
+
+#define _LOGV(v) \
+	_Generic((v), \
+		char *: log_value_str, \
+		const char *: log_value_str, \
+		signed char: log_value_int, \
+		unsigned char: log_value_uint, \
+		short: log_value_int, \
+		unsigned short: log_value_uint, \
+		int: log_value_int, \
+		unsigned int: log_value_uint, \
+		long: log_value_long, \
+		unsigned long: log_value_ulong, \
+		long long: log_value_llong, \
+		unsigned long long: log_value_ullong \
+	)(v)
+
+#define LOG_INFO(msg, ...)  log_at('I', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
+#define LOG_WARN(msg, ...)  log_at('W', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
+#define LOG_ERROR(msg, ...) log_at('E', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
 
 #endif

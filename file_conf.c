@@ -195,7 +195,7 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 
 		struct route *r = &routes[count];
 		if (parse_route_line(line, r) != 0) {
-			LOG_ERROR("%s:%u: invalid route config", path, line_no);
+			LOG_ERROR("invalid route config", "path", _LOGV(path), "line", _LOGV(line_no));
 			fclose(fp);
 			free(routes);
 			return -EINVAL;

@@ -13,13 +13,13 @@ static void signal_cb(evutil_socket_t sig, short events, void *arg)
 
 	switch (sig) {
 	case SIGINT:
-		LOG_INFO("received signal, shutting down", "signal", "SIGINT");
+		LOG_INFO("received signal, shutting down", "signal", _LOGV("SIGINT"));
 		break;
 	case SIGTERM:
-		LOG_INFO("received signal, shutting down", "signal", "SIGTERM");
+		LOG_INFO("received signal, shutting down", "signal", _LOGV("SIGTERM"));
 		break;
 	default:
-		LOG_INFO("received signal, shutting down", "signal", "unknown");
+		LOG_INFO("received signal, shutting down", "signal", _LOGV("unknown"));
 		break;
 	}
 

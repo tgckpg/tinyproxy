@@ -53,7 +53,7 @@ int main(int argc, char **argv)
 	}
 
 	if (optind != argc) {
-		LOG_ERROR("unexpected argument: %s", argv[optind]);
+		LOG_ERROR("unexpected argument", "argv", _LOGV(argv[optind]));
 		usage(stderr, argv[0]);
 		return 2;
 	}
@@ -63,12 +63,12 @@ int main(int argc, char **argv)
 
 	int rc = load_routes_from_file(conf_path, &routes, &route_count);
 	if (rc != 0) {
-		LOG_ERROR("failed to load config %s: %s", conf_path, strerror(-rc));
+		LOG_ERROR("failed to load config", "path", conf_path, "msg", _LOGV(strerror(-rc)));
 		return 1;
 	}
 
 	if (route_count == 0) {
-		LOG_ERROR("config %s has no routes", conf_path);
+		LOG_ERROR("config has no routes", "path", _LOGV(conf_path));
 		free_routes(routes);
 		return 1;
 	}
@@ -118,16 +118,18 @@ int main(int argc, char **argv)
 			break;
 
 		default:
-			LOG_ERROR("route %zu has unknown protocol", i);
+			LOG_ERROR("route has unknown protocol", "line", _LOGV(r->line_no));
 			rc = -EINVAL;
 			break;
 		}
 
 		if (rc != 0) {
-			LOG_ERROR("msg=\"failed to start route\" line=%u listen_host=%s listen_port=%u upstream_host=%s upstream_port=%u",
-				r->line_no,
-				r->listen_host, r->listen_port,
-				r->upstream_host, r->upstream_port
+			LOG_ERROR("failed to start route",
+				"line", _LOGV(r->line_no),
+				"listen_host", _LOGV(r->listen_port),
+				"listen_port", _LOGV(r->listen_host),
+				"upstream_host", _LOGV(r->upstream_host),
+				"upstream_port", _LOGV(r->upstream_port)
 			);
 
 			for (size_t j = 0; j < tcp_ctx_count; j++) {
@@ -153,7 +155,7 @@ int main(int argc, char **argv)
 	free_routes(routes);
 
 	if (rc != 0) {
-		LOG_ERROR("event loop failed: %s", strerror(-rc));
+		LOG_ERROR("event loop failed", "msg", _LOGV(strerror(-rc)));
 		return 1;
 	}
 
