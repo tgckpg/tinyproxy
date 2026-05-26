@@ -192,10 +192,15 @@ jobs:
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           tag="${GITHUB_REF_NAME}"
 
-          gh release create "$tag" \
-            release-assets/* \
-            --title "$tag" \
-            --generate-notes
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" release-assets/* --clobber
+          else
+            gh release create "$tag" \
+              release-assets/* \
+              --title "$tag" \
+              --generate-notes
+          fi
