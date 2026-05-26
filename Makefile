@@ -44,6 +44,7 @@ else ifeq ($(OS),Windows_NT)
 STATIC ?= 0
 LDFLAGS += -Wl,--gc-sections
 TEST_FLAGS :=
+TEST_FLAGS := CONCURRENCY=100 TOTAL=100 FD_LIMIT=512
 else
 STATIC ?= 1
 LDFLAGS += -Wl,--gc-sections

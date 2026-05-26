@@ -174,12 +174,16 @@ async def main_async(proxy_bin: str) -> int:
 		backlog=4096,
 	)
 
-	with tempfile.NamedTemporaryFile("w", suffix=".conf") as f:
-		f.write(f"{LISTEN_HOST}:{PROXY_PORT} {LISTEN_HOST}:{BACKEND_PORT} tcp\n")
-		f.flush()
+	conf_path = None
+	proxy = None
+
+	try:
+		fd, conf_path = tempfile.mkstemp(suffix=".conf", text=True)
+		with os.fdopen(fd, "w") as f:
+			f.write(f"{LISTEN_HOST}:{PROXY_PORT} {LISTEN_HOST}:{BACKEND_PORT} tcp\n")
 
 		proxy = subprocess.Popen(
-			[proxy_bin, "-c", f.name],
+			[proxy_bin, "-c", conf_path],
 			stdout=subprocess.PIPE,
 			stderr=subprocess.PIPE,
 			text=True,
@@ -192,43 +196,42 @@ async def main_async(proxy_bin: str) -> int:
 			raise RuntimeError(
 				f"proxy exited early with code {proxy.returncode}\n{stderr}"
 			)
-
-		try:
 			await wait_for_port(LISTEN_HOST, BACKEND_PORT)
 			await wait_for_port(LISTEN_HOST, PROXY_PORT)
 
-			print("running test_small_roundtrip...")
-			await test_small_roundtrip()
-			print("ok test_small_roundtrip")
+		print("running test_small_roundtrip...")
+		await test_small_roundtrip()
+		print("ok test_small_roundtrip")
 
-			print("running test_large_roundtrip...")
-			await test_large_roundtrip()
-			print("ok test_large_roundtrip")
+		print("running test_large_roundtrip...")
+		await test_large_roundtrip()
+		print("ok test_large_roundtrip")
 
-			print("running test_many_sequential_connections 1000...")
-			await test_many_sequential_connections(1000)
-			print("ok test_many_sequential_connections")
+		print("running test_many_sequential_connections 1000...")
+		await test_many_sequential_connections(1000)
+		print("ok test_many_sequential_connections")
 
-			total = int(os.environ.get("TOTAL", "10000"))
-			concurrency = int(os.environ.get("CONCURRENCY", "10000"))
-			payload_size = int(os.environ.get("PAYLOAD_SIZE", "1024"))
+		total = int(os.environ.get("TOTAL", "10000"))
+		concurrency = int(os.environ.get("CONCURRENCY", "10000"))
+		payload_size = int(os.environ.get("PAYLOAD_SIZE", "1024"))
 
-			print(
-				f"running test_concurrent_connections "
-				f"total={total} concurrency={concurrency} payload_size={payload_size}..."
-			)
+		print(
+			f"running test_concurrent_connections "
+			f"total={total} concurrency={concurrency} payload_size={payload_size}..."
+		)
 
-			await test_concurrent_connections(
-				total=total,
-				concurrency=concurrency,
-				payload_size=payload_size,
-			)
+		await test_concurrent_connections(
+			total=total,
+			concurrency=concurrency,
+			payload_size=payload_size,
+		)
 
-			print("ok test_concurrent_connections")
-			print("all tests passed")
-			return 0
+		print("ok test_concurrent_connections")
+		print("all tests passed")
+		return 0
 
-		finally:
+	finally:
+		if proxy is not None:
 			proxy.terminate()
 
 			try:
@@ -237,13 +240,20 @@ async def main_async(proxy_bin: str) -> int:
 				proxy.kill()
 				proxy.wait(timeout=2.0)
 
-			backend_server.close()
-			await backend_server.wait_closed()
+		backend_server.close()
+		await backend_server.wait_closed()
 
+		if proxy is not None:
 			stderr = proxy.stderr.read() if proxy.stderr else ""
 			if stderr:
 				print("\nproxy stderr:")
 				print(stderr)
+
+		if conf_path is not None:
+			try:
+				os.unlink(conf_path)
+			except FileNotFoundError:
+				pass
 
 
 def main() -> int:

@@ -27,6 +27,22 @@ int main(int argc, char **argv)
 {
 	const char *conf_path = "tinyproxy.conf";
 	int opt;
+	int exit_code = 1;
+	int rc;
+
+#ifdef _WIN32
+	int wsa_started = 0;
+#endif
+
+	struct route *routes = NULL;
+	size_t route_count = 0;
+
+	struct listener_ctx **tcp_ctxs = NULL;
+	size_t tcp_ctx_count = 0;
+
+	struct event_base *base = NULL;
+	struct signal_events signals;
+	int signals_started = 0;
 
 	while ((opt = getopt(argc, argv, "c:h:v")) != -1) {
 		switch (opt) {
@@ -58,43 +74,46 @@ int main(int argc, char **argv)
 		return 2;
 	}
 
-	struct route *routes = NULL;
-	size_t route_count = 0;
-
-	int rc = load_routes_from_file(conf_path, &routes, &route_count);
+	rc = load_routes_from_file(conf_path, &routes, &route_count);
 	if (rc != 0) {
-		LOG_ERROR("failed to load config", "path", conf_path, "msg", _LOGV(strerror(-rc)));
-		return 1;
+		LOG_ERROR("failed to load config",
+			"path", _LOGV(conf_path),
+			"err", _LOGV(strerror(-rc)));
+		goto out;
 	}
 
 	if (route_count == 0) {
 		LOG_ERROR("config has no routes", "path", _LOGV(conf_path));
-		free_routes(routes);
-		return 1;
+		goto out;
 	}
 
-	struct listener_ctx **tcp_ctxs = calloc(route_count, sizeof(*tcp_ctxs));
+	tcp_ctxs = calloc(route_count, sizeof(*tcp_ctxs));
 	if (tcp_ctxs == NULL) {
-		free_routes(routes);
-		return 1;
+		LOG_ERROR("calloc failed", "err", _LOGV(strerror(errno)));
+		goto out;
 	}
 
-	size_t tcp_ctx_count = 0;
+#ifdef _WIN32
+	WSADATA wsa;
+	rc = WSAStartup(MAKEWORD(2, 2), &wsa);
+	if (rc != 0) {
+		LOG_ERROR("WSAStartup failed", "err", _LOGV(rc));
+		goto out;
+	}
+	wsa_started = 1;
+#endif
 
-	struct event_base *base = event_base_new();
+	base = event_base_new();
 	if (base == NULL) {
 		LOG_ERROR("event_base_new failed");
-		return 1;
+		goto out;
 	}
-
-	struct signal_events signals;
 
 	if (setup_signal_handlers(base, &signals) != 0) {
 		LOG_ERROR("failed to setup signal handlers");
-		event_base_free(base);
-		free_routes(routes);
-		return 1;
+		goto out;
 	}
+	signals_started = 1;
 
 	struct worker w = {
 		.base = base,
@@ -113,8 +132,8 @@ int main(int argc, char **argv)
 			break;
 
 		case PROTO_UDP:
-			// rc = start_udp_route(r);
 			LOG_WARN("skipping udp route: Not implemented yet");
+			rc = 0;
 			break;
 
 		default:
@@ -126,38 +145,44 @@ int main(int argc, char **argv)
 		if (rc != 0) {
 			LOG_ERROR("failed to start route",
 				"line", _LOGV(r->line_no),
-				"listen_host", _LOGV(r->listen_port),
-				"listen_port", _LOGV(r->listen_host),
+				"listen_host", _LOGV(r->listen_host),
+				"listen_port", _LOGV(r->listen_port),
 				"upstream_host", _LOGV(r->upstream_host),
-				"upstream_port", _LOGV(r->upstream_port)
-			);
-
-			for (size_t j = 0; j < tcp_ctx_count; j++) {
-				free_tcp_route(tcp_ctxs[j]);
-			}
-
-			free(tcp_ctxs);
-			event_base_free(base);
-			free_routes(routes);
-			return 1;
+				"upstream_port", _LOGV(r->upstream_port));
+			goto out;
 		}
 	}
 
 	rc = event_base_dispatch(base);
+	if (rc != 0) {
+		LOG_ERROR("event loop failed", "err", _LOGV(rc));
+		goto out;
+	}
 
+	exit_code = 0;
+
+out:
 	for (size_t i = 0; i < tcp_ctx_count; i++) {
 		free_tcp_route(tcp_ctxs[i]);
 	}
 
-	free_signal_handlers(&signals);
-	free(tcp_ctxs);
-	event_base_free(base);
-	free_routes(routes);
-
-	if (rc != 0) {
-		LOG_ERROR("event loop failed", "msg", _LOGV(strerror(-rc)));
-		return 1;
+	if (signals_started) {
+		free_signal_handlers(&signals);
 	}
 
-	return 0;
+	free(tcp_ctxs);
+
+	if (base != NULL) {
+		event_base_free(base);
+	}
+
+	free_routes(routes);
+
+#ifdef _WIN32
+	if (wsa_started) {
+		WSACleanup();
+	}
+#endif
+
+	return exit_code;
 }

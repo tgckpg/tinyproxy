@@ -65,7 +65,7 @@ static void event_cb(struct bufferevent *bev, short events, void *arg) {
 	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
 		if (events & BEV_EVENT_ERROR) {
 			int err = EVUTIL_SOCKET_ERROR();
-			LOG_ERROR("connection error", "msg", _LOGV(evutil_socket_error_to_string(err)));
+			LOG_ERROR("connection error", "err", _LOGV(evutil_socket_error_to_string(err)));
 		}
 
 		free_conn(conn);
@@ -217,7 +217,7 @@ static void accept_error_cb(struct evconnlistener *listener, void *arg) {
 	struct event_base *base = arg;
 	int err = EVUTIL_SOCKET_ERROR();
 
-	LOG_ERROR("accept error", "msg", _LOGV(evutil_socket_error_to_string(err)));
+	LOG_ERROR("accept error", "err", _LOGV(evutil_socket_error_to_string(err)));
 
 	evconnlistener_free(listener);
 	event_base_loopexit(base, NULL);
