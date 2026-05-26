@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM alpine:3.23 AS build
+FROM alpine:3.23 AS build
 
 RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
 	apk add --update-cache build-base libevent-dev libevent-static
