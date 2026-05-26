@@ -183,6 +183,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: release-assets
+          pattern: tinyproxy-*
           merge-multiple: true
 
       - name: Show release assets
