@@ -4,6 +4,7 @@ CC ?= cc
 AR := /usr/bin/ar
 RANLIB := /usr/bin/ranlib
 STRIP ?= strip
+STATIC ?= 1
 
 PROJECT_ROOT := $(CURDIR)
 BIN_DIR := $(CURDIR)/bin
@@ -29,11 +30,16 @@ LIBEVENT_CORE_A := $(LIBEVENT_PREFIX)/lib/libevent_core.a
 
 CFLAGS ?= -Os -Wall -Wextra -ffunction-sections -fdata-sections
 
+ifeq ($(STATIC),1)
+LDFLAGS += -static
+PKG_CONFIG_STATIC := --static
+endif
+
 ifeq ($(strip $(LIBEVENT_SRC)),)
-# System libevent, e.g. Alpine libevent-dev
+# System libevent, statically linked
 LIBEVENT_CPPFLAGS := $(shell pkg-config --cflags libevent_core)
-LIBEVENT_LDFLAGS  := $(shell pkg-config --libs-only-L libevent_core)
-LIBEVENT_LDLIBS   := $(shell pkg-config --libs-only-l --libs-only-other libevent_core)
+LIBEVENT_LDFLAGS  :=
+LIBEVENT_LDLIBS   := $(shell pkg-config --static --libs libevent_core)
 LIBEVENT_DEPS     :=
 else
 # Vendored libevent
@@ -44,7 +50,7 @@ LIBEVENT_DEPS     := $(LIBEVENT_CORE_A)
 endif
 
 CPPFLAGS += $(LIBEVENT_CPPFLAGS)
-LDFLAGS  += $(LIBEVENT_LDFLAGS)
+LDFLAGS  += -static $(LIBEVENT_LDFLAGS)
 LDLIBS   += $(LIBEVENT_LDLIBS)
 
 $(BIN): $(SRC) $(LIBEVENT_DEPS)
