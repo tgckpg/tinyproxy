@@ -1,0 +1,109 @@
+name: tinyproxy CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  linux-musl-x86_64:
+    name: Linux musl x86_64 static
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.23
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          apk add --no-cache \
+            build-base \
+            libevent-dev \
+            python3
+
+      - name: Build
+        run: make clean all
+
+      - name: Verify static binary
+        run: |
+          file bin/tinyproxy
+          ldd bin/tinyproxy && exit 1 || true
+
+      - name: Test
+        run: make test
+
+  linux-musl-arm64:
+    name: Linux musl arm64 static
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: alpine:3.23
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          apk add --no-cache \
+            build-base \
+            libevent-dev \
+            python3
+
+      - name: Build
+        run: make clean all
+
+      - name: Verify static binary
+        run: |
+          file bin/tinyproxy
+          ldd bin/tinyproxy && exit 1 || true
+
+      - name: Test
+        run: make test
+
+  macos:
+    name: macOS build
+    runs-on: macos-15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install deps
+        run: |
+          brew update
+          brew install libevent
+
+      - name: Build
+        run: make clean all STATIC=0
+
+      - name: Test
+        run: make test
+
+  windows:
+    name: Windows build
+    runs-on: windows-2022
+    continue-on-error: true
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-libevent
+            mingw-w64-ucrt-x86_64-python
+
+      - name: Build
+        run: make clean all STATIC=0
+
+      - name: Test
+        run: make test
