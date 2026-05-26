@@ -47,6 +47,7 @@ jobs:
         run: |
           apk add --no-cache \
             build-base \
+            haproxy \
             libevent-dev \
             python3
 
