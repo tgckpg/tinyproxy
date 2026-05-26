@@ -1,6 +1,7 @@
 bin/
 build/
 libevent2/
+__pycache__
 *.log
 *.swp
 

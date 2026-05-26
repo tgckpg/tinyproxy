@@ -16,7 +16,7 @@ void route_options_str(const struct route *r, char *buf, size_t buflen)
 	} while (0)
 
 	if (r->send_proxy_v2) {
-		ADD_OPT("proxyv2");
+		ADD_OPT("proxy_v2");
 	}
 
 #undef ADD_OPT

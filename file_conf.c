@@ -130,7 +130,7 @@ static int parse_route_line(char *line, struct route *route)
 	route->send_proxy_v2 = false;
 
 	if (count == 4) {
-		if (strcmp(fields[3], "proxyv2") != 0) {
+		if (strcmp(fields[3], "proxy_v2") != 0) {
 			return -1;
 		}
 

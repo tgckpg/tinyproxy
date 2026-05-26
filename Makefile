@@ -107,7 +107,7 @@ else
 endif
 
 test: $(BIN)
-	$(TEST_FLAGS) python3 tests/test_proxy.py $(BIN)
+	$(TEST_FLAGS) python3 -m tests.run_tests $(BIN)
 
 clean:
 	rm -rf $(BIN_DIR)

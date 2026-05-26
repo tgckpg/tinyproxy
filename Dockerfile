@@ -10,6 +10,9 @@ COPY [ "*.c", "*.h", "*.conf", "Makefile", "/src" ]
 
 RUN make all STATIC=1
 
+RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
+	apk add --update-cache haproxy
+
 COPY tests ./tests
 RUN make test STATIC=1
 

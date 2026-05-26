@@ -94,7 +94,7 @@ jobs:
       - name: Install deps
         run: |
           brew update
-          brew install libevent
+          brew install libevent haproxy
 
       - name: Build
         run: make clean all STATIC=0

@@ -16,8 +16,6 @@
 #include "route.h"
 #include "tcp_route.h"
 
-#define PROXY_V2_SIG "\r\n\r\n\0\r\nQUIT\n"
-
 static void free_conn(conn_t *conn) {
 	if (conn == NULL) {
 		return;
@@ -154,7 +152,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 			return;
 		}
 
-		if (0 < ac->peer_addr_len) {
+		if (ac->peer_addr_len <= 0) {
 			LOG_ERROR("invalid client address");
 			free_conn(conn);
 			return;
@@ -167,15 +165,17 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 			return;
 		}
 
-		if (proxy_v2_write_bufferevent(
+		int rc = proxy_v2_write_bufferevent(
 			conn->upstream,
 			(const struct sockaddr *)&ac->peer_addr,
 			ac->peer_addr_len,
 			(struct sockaddr *)&local_addr,
 			local_len,
 			SOCK_STREAM
-		) < 0) {
-			LOG_ERROR("failed to write PROXY v2 header");
+		);
+
+		if (rc < 0) {
+			LOG_ERROR("failed to write PROXY v2 header", "err", _LOGV(strerror(-rc)));
 			free_conn(conn);
 			return;
 		}
@@ -204,10 +204,13 @@ static void accept_cb(
 		.route = ctx->route,
 	};
 
-	if(addr && 0 < socklen && (size_t)socklen <= sizeof(ac.peer_addr)) {
+	if (addr != NULL && socklen > 0 && (size_t)socklen <= sizeof(ac.peer_addr)) {
 		memcpy(&ac.peer_addr, addr, (size_t)socklen);
+		ac.peer_addr_len = (socklen_t)socklen;
 	} else {
-		ac.peer_addr_len = 0;
+		LOG_ERROR("invalid accepted client address", "socklen", _LOGV(socklen));
+		evutil_closesocket(client_fd);
+		return;
 	}
 
 	dispatch_client_fd(ctx->worker, &ac);
