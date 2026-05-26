@@ -14,6 +14,7 @@ from . import test_tcp_basic
 from . import test_tcp_idle_timeout
 from . import test_tcp_stress
 from . import test_udp_basic
+from . import test_udp_idle_timeout
 from . import test_haproxy_proxy_v2
 from . import test_udp_proxy_v2
 
@@ -31,6 +32,7 @@ STANDALONE_TEST_MODULES = [
 	test_haproxy_proxy_v2,
 	test_udp_proxy_v2,
 	test_tcp_idle_timeout,
+	test_udp_idle_timeout,
 ]
 
 
