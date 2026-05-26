@@ -49,7 +49,13 @@ jobs:
     container:
       image: alpine:3.23
 
+    permissions:
+      contents: read
+
     steps:
+      - uses: laverdet/alpine-arm64@7f0f72ee2f71eb2324e5888e8b6e42b1b53e6160
+        if: runner.arch == 'ARM64'
+
       - uses: actions/checkout@v4
 
       - name: Install deps
