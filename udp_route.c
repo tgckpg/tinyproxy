@@ -134,11 +134,11 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 		if (n < 0) {
 			int err = EVUTIL_SOCKET_ERROR();
 
-			if (err == EAGAIN || err == EWOULDBLOCK) {
+			if (socket_err_is_retriable(err)) {
 				return;
 			}
 
-			LOG_ERROR("udp upstream recv failed",
+			LOG_ERROR("udp recvfrom failed",
 				"err", _LOGV(evutil_socket_error_to_string(err))
 			);
 			return;
@@ -343,11 +343,11 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 		if (n < 0) {
 			int err = EVUTIL_SOCKET_ERROR();
 
-			if (err == EAGAIN || err == EWOULDBLOCK) {
+			if (socket_err_is_retriable(err)) {
 				return;
 			}
 
-			LOG_ERROR("udp recvfrom failed",
+			LOG_ERROR("udp upstream recv failed",
 				"err", _LOGV(evutil_socket_error_to_string(err))
 			);
 			return;
@@ -370,7 +370,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 		int rc = send_udp_payload_to_upstream(c, buf, (size_t)n);
 		if (rc < 0) {
 			LOG_ERROR("udp send to upstream failed",
-				"err", _LOGV(strerror(-rc))
+				"err", _LOGV(evutil_socket_error_to_string(-rc))
 			);
 			return;
 		}

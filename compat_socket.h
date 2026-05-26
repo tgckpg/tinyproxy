@@ -20,4 +20,13 @@
 
 #endif
 
+static inline int socket_err_is_retriable(int err)
+{
+#ifdef _WIN32
+	return err == WSAEWOULDBLOCK || err == WSAEINTR;
+#else
+	return err == EAGAIN || err == EWOULDBLOCK || err == EINTR;
+#endif
+}
+
 #endif

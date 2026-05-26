@@ -48,7 +48,6 @@ class UDPClientProtocol(asyncio.DatagramProtocol):
 class UDPProxyV2EchoServerProtocol(asyncio.DatagramProtocol):
 	def __init__(self) -> None:
 		self.transport: asyncio.DatagramTransport | None = None
-		self.seen: asyncio.Future[None] | None = None
 		self.error: Exception | None = None
 		self.last_src: tuple[str, int] | None = None
 		self.last_dst: tuple[str, int] | None = None
@@ -56,8 +55,6 @@ class UDPProxyV2EchoServerProtocol(asyncio.DatagramProtocol):
 
 	def connection_made(self, transport: asyncio.BaseTransport) -> None:
 		self.transport = transport  # type: ignore[assignment]
-		loop = asyncio.get_running_loop()
-		self.seen = loop.create_future()
 
 	def datagram_received(self, data: bytes, addr) -> None:
 		self.last_raw = data
@@ -66,15 +63,10 @@ class UDPProxyV2EchoServerProtocol(asyncio.DatagramProtocol):
 			src, dst, payload = parse_proxy_v2_udp4_packet(data)
 		except Exception as exc:
 			self.error = exc
-			if self.seen is not None and not self.seen.done():
-				self.seen.set_exception(exc)
 			return
 
 		self.last_src = src
 		self.last_dst = dst
-
-		if self.seen is not None and not self.seen.done():
-			self.seen.set_result(None)
 
 		if self.transport is not None:
 			self.transport.sendto(payload, addr)

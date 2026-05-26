@@ -24,10 +24,14 @@ int proxy_v2_build(
 	size_t *out_len
 ) {
 	unsigned char fam_proto;
-	uint16_t addr_len;
+	size_t addr_len;
 	unsigned char *p;
 
 	if (buf == NULL || src == NULL || dst == NULL || out_len == NULL) {
+		return -EINVAL;
+	}
+
+	if (src_len < 0 || dst_len < 0) {
 		return -EINVAL;
 	}
 
@@ -45,8 +49,8 @@ int proxy_v2_build(
 
 	switch (src->sa_family) {
 	case AF_INET:
-		if (src_len < sizeof(struct sockaddr_in) ||
-			dst_len < sizeof(struct sockaddr_in)) {
+		if ((size_t)src_len < sizeof(struct sockaddr_in) ||
+			(size_t)dst_len < sizeof(struct sockaddr_in)) {
 			return -EINVAL;
 		}
 
@@ -59,7 +63,7 @@ int proxy_v2_build(
 		memcpy(buf, PROXY_V2_SIG, 12);
 		buf[12] = PP2_VERSION_CMD_PROXY;
 		buf[13] = PP2_FAM_INET | fam_proto;
-		put_u16(buf + 14, addr_len);
+		put_u16(buf + 14, (uint16_t)addr_len);
 
 		p = buf + 16;
 
@@ -82,8 +86,8 @@ int proxy_v2_build(
 		return 0;
 
 	case AF_INET6:
-		if (src_len < sizeof(struct sockaddr_in6) ||
-			dst_len < sizeof(struct sockaddr_in6)) {
+		if ((size_t)src_len < sizeof(struct sockaddr_in6) ||
+			(size_t)dst_len < sizeof(struct sockaddr_in6)) {
 			return -EINVAL;
 		}
 
@@ -96,7 +100,7 @@ int proxy_v2_build(
 		memcpy(buf, PROXY_V2_SIG, 12);
 		buf[12] = PP2_VERSION_CMD_PROXY;
 		buf[13] = PP2_FAM_INET6 | fam_proto;
-		put_u16(buf + 14, addr_len);
+		put_u16(buf + 14, (uint16_t)addr_len);
 
 		p = buf + 16;
 

@@ -2,7 +2,6 @@ import asyncio
 import os
 
 from .support import (
-	BACKEND_PORT,
 	LISTEN_HOST,
 	PROXY_PORT,
 	SkipTest,
@@ -11,6 +10,9 @@ from .support import (
 	udp_proxy_roundtrip,
 )
 
+UDP_PROXY_V2_BACKEND_PORT = 41234
+
+
 async def test_tinyproxy_sends_proxy_v2_for_udp() -> None:
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
@@ -18,11 +20,14 @@ async def test_tinyproxy_sends_proxy_v2_for_udp() -> None:
 
 	conf_text = (
 		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
+		f"{LISTEN_HOST}:{UDP_PROXY_V2_BACKEND_PORT} "
 		f"udp proxy_v2\n"
 	)
 
-	async with run_udp_proxy_v2_echo_backend(LISTEN_HOST, BACKEND_PORT) as backend:
+	async with run_udp_proxy_v2_echo_backend(
+		LISTEN_HOST,
+		UDP_PROXY_V2_BACKEND_PORT,
+	) as backend:
 		async with run_tinyproxy_with_conf(
 			proxy_bin=proxy_bin,
 			conf_text=conf_text,
@@ -32,31 +37,45 @@ async def test_tinyproxy_sends_proxy_v2_for_udp() -> None:
 		):
 			payload = b"hello udp proxy v2\n"
 
-			echo_task = asyncio.create_task(udp_proxy_roundtrip(payload, timeout=3.0))
-
 			try:
-				got = await echo_task
-			except TimeoutError:
-				if backend.error is not None:
-					raw = backend.last_raw.hex(" ") if backend.last_raw else "<none>"
-					raise AssertionError(
-						f"backend failed to parse UDP PROXY v2: {backend.error}; raw={raw}"
-					) from backend.error
-
+				got = await udp_proxy_roundtrip(payload, timeout=3.0)
+			except TimeoutError as exc:
 				raw = backend.last_raw.hex(" ") if backend.last_raw else "<none>"
 				raise AssertionError(
-					f"timed out waiting for UDP proxy v2 echo; backend raw={raw}"
-				)
+					"timed out waiting for UDP proxy-v2 echo; "
+					f"backend_error={backend.error!r}; "
+					f"backend_last_src={backend.last_src!r}; "
+					f"backend_last_dst={backend.last_dst!r}; "
+					f"backend_raw={raw}"
+				) from exc
 
-			assert got == payload, f"udp proxy v2 roundtrip mismatch: {got!r}"
+			raw = backend.last_raw.hex(" ") if backend.last_raw else "<none>"
 
-			assert backend.error is None, f"backend failed to parse PROXY v2: {backend.error}"
-			assert backend.last_src is not None, "backend did not record PROXY v2 source"
-			assert backend.last_dst is not None, "backend did not record PROXY v2 destination"
+			assert backend.error is None, (
+				f"backend failed to parse PROXY v2: {backend.error!r}; raw={raw}"
+			)
+			assert got == payload, (
+				f"udp proxy-v2 roundtrip mismatch: got={got!r} expected={payload!r}; "
+				f"backend_raw={raw}"
+			)
+			assert backend.last_src is not None, (
+				f"backend did not record PROXY v2 source; raw={raw}"
+			)
+			assert backend.last_dst is not None, (
+				f"backend did not record PROXY v2 destination; raw={raw}"
+			)
 
-			assert backend.last_src[0] == LISTEN_HOST
-			assert backend.last_dst[0] == LISTEN_HOST
-			assert backend.last_dst[1] == PROXY_PORT
+			assert backend.last_src[0] == LISTEN_HOST, (
+				f"bad proxy-v2 src addr: got={backend.last_src!r}; raw={raw}"
+			)
+			assert backend.last_dst[0] == LISTEN_HOST, (
+				f"bad proxy-v2 dst addr: got={backend.last_dst!r}; raw={raw}"
+			)
+			assert backend.last_dst[1] == PROXY_PORT, (
+				f"bad proxy-v2 dst port: got={backend.last_dst!r}; "
+				f"expected_port={PROXY_PORT}; raw={raw}"
+			)
+
 
 TESTS = [
 	("test_tinyproxy_sends_proxy_v2_for_udp", test_tinyproxy_sends_proxy_v2_for_udp),
