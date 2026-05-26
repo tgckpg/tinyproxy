@@ -1,5 +1,8 @@
-Forwarding
+## Core
+* pthread support
+
+## Forwarding
 * IPv6 <-> IPv4
 
-options
+## options
 * udp timeout
