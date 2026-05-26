@@ -7,17 +7,22 @@ on:
   pull_request:
     branches: ["main"]
 
+env:
+  ARTIFACT_RETENTION_DAYS: 30
+
 jobs:
   linux-musl-x86_64:
     name: Linux musl x86_64 static
     runs-on: ubuntu-latest
     container:
-      image: alpine:3.23
+      image: &alpine_image alpine:3.23
 
     steps:
-      - uses: actions/checkout@v4
+      - &checkout
+        uses: actions/checkout@v4
 
-      - name: Install deps
+      - &install_linux_deps
+        name: Install deps
         run: |
           apk add --no-cache \
             build-base \
@@ -26,10 +31,12 @@ jobs:
             python3 \
             haproxy
 
-      - name: Build
+      - &build_static
+        name: Build
         run: make clean all
 
-      - name: Verify static binary
+      - &verify_static
+        name: Verify static binary
         run: |
           apk add --no-cache pax-utils
           file bin/tinyproxy
@@ -40,14 +47,32 @@ jobs:
             exit 1
           fi
 
-      - name: Test
+      - &test
+        name: Test
         run: make test
+
+      - &package_unix
+        name: Package artifact
+        run: |
+          mkdir -p dist/tinyproxy
+          cp bin/tinyproxy dist/tinyproxy/
+          cp tinyproxy.conf dist/tinyproxy/
+          tar -C dist -czf tinyproxy-${{ runner.os }}-${{ runner.arch }}.tar.gz tinyproxy
+
+      - &upload_unix
+        name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyproxy-${{ runner.os }}-${{ runner.arch }}
+          path: tinyproxy-${{ runner.os }}-${{ runner.arch }}.tar.gz
+          if-no-files-found: error
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
 
   linux-musl-arm64:
     name: Linux musl arm64 static
     runs-on: ubuntu-24.04-arm
     container:
-      image: alpine:3.23
+      image: *alpine_image
 
     permissions:
       contents: read
@@ -56,40 +81,20 @@ jobs:
       - uses: laverdet/alpine-arm64@7f0f72ee2f71eb2324e5888e8b6e42b1b53e6160
         if: runner.arch == 'ARM64'
 
-      - uses: actions/checkout@v4
-
-      - name: Install deps
-        run: |
-          apk add --no-cache \
-            build-base \
-            libevent-dev \
-            libevent-static \
-            python3 \
-            haproxy
-
-      - name: Build
-        run: make clean all
-
-      - name: Verify static binary
-        run: |
-          apk add --no-cache pax-utils
-          file bin/tinyproxy
-          scanelf -n bin/tinyproxy
-
-          if scanelf -n bin/tinyproxy | grep -q 'lib'; then
-            echo "binary has dynamic library dependencies"
-            exit 1
-          fi
-
-      - name: Test
-        run: make test
+      - *checkout
+      - *install_linux_deps
+      - *build_static
+      - *verify_static
+      - *test
+      - *package_unix
+      - *upload_unix
 
   macos:
     name: macOS build
     runs-on: macos-15
 
     steps:
-      - uses: actions/checkout@v4
+      - *checkout
 
       - name: Install deps
         run: |
@@ -99,8 +104,9 @@ jobs:
       - name: Build
         run: make clean all STATIC=0
 
-      - name: Test
-        run: make test
+      - *test
+      - *package_unix
+      - *upload_unix
 
   windows:
     name: Windows build
@@ -108,7 +114,7 @@ jobs:
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@v4
+      - *checkout
 
       - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
@@ -130,5 +136,25 @@ jobs:
 
       - name: Test
         shell: msys2 {0}
+        run: make test
+
+      - name: Package artifact
+        shell: msys2 {0}
         run: |
-          make test
+          mkdir -p dist/tinyproxy
+
+          if [ -f bin/tinyproxy.exe ]; then
+            cp bin/tinyproxy.exe dist/tinyproxy/
+          else
+            cp bin/tinyproxy dist/tinyproxy/tinyproxy.exe
+          fi
+
+          cp tinyproxy.conf dist/tinyproxy/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyproxy-Windows-X64
+          path: dist/tinyproxy/
+          if-no-files-found: error
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
