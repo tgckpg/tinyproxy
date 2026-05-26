@@ -85,7 +85,13 @@ static void event_cb(struct bufferevent *bev, short events, void *arg) {
 		return;
 	}
 
-	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR | BEV_EVENT_TIMEOUT)) {
+	if (events & BEV_EVENT_TIMEOUT) {
+		LOG_WARN("connection timed out");
+		free_conn(conn);
+		return;
+	}
+
+	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
 		if (events & BEV_EVENT_ERROR) {
 			int err = EVUTIL_SOCKET_ERROR();
 			LOG_ERROR("connection error", "err", _LOGV(evutil_socket_error_to_string(err)));
@@ -95,6 +101,17 @@ static void event_cb(struct bufferevent *bev, short events, void *arg) {
 	}
 
 	(void)bev;
+}
+
+static void set_idle_timeouts(conn_t *conn, const struct route *r)
+{
+	struct timeval idle_timeout = {
+		.tv_sec = r->opts.idle_timeout_sec,
+		.tv_usec = 0,
+	};
+
+	bufferevent_set_timeouts(conn->client, &idle_timeout, &idle_timeout);
+	bufferevent_set_timeouts(conn->upstream, &idle_timeout, &idle_timeout);
 }
 
 static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
@@ -155,6 +172,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	 */
 	bufferevent_disable(conn->client, EV_READ);
 
+	set_idle_timeouts(conn, r);
 	if (bufferevent_socket_connect(
 			conn->upstream,
 			(struct sockaddr *)&upstream_addr,
