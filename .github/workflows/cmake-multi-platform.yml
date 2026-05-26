@@ -22,7 +22,9 @@ jobs:
           apk add --no-cache \
             build-base \
             libevent-dev \
-            python3
+            libevent-static \
+            python3 \
+            haproxy
 
       - name: Build
         run: make clean all
@@ -48,9 +50,10 @@ jobs:
         run: |
           apk add --no-cache \
             build-base \
-            haproxy \
             libevent-dev \
-            python3
+            libevent-static \
+            python3 \
+            haproxy
 
       - name: Build
         run: make clean all

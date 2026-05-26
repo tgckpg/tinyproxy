@@ -79,6 +79,16 @@ static inline struct log_value log_value_ullong(unsigned long long v)
 		unsigned long long: log_value_ullong \
 	)(v)
 
+/*
+ * Structured fields must be passed as:
+ *
+ *   LOG_INFO("message", "key", _LOGV(value), ...);
+ *
+ * Do not pass raw values:
+ *
+ *   LOG_INFO("message", "key", value); // wrong
+ */
+
 #define LOG_INFO(msg, ...)  log_at('I', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
 #define LOG_WARN(msg, ...)  log_at('W', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
 #define LOG_ERROR(msg, ...) log_at('E', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
