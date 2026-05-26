@@ -1,0 +1,531 @@
+#include <event2/event.h>
+#include <event2/util.h>
+
+#include <errno.h>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+
+#include "klog.h"
+#include "file_conf.h"
+#include "compat_socket.h"
+#include "proxy_proto_v2.h"
+#include "route.h"
+#include "udp_route.h"
+
+#define UDP_MAX_PACKET 65535
+#define UDP_CLIENT_IDLE_TIMEOUT_SEC 60
+
+struct udp_route_ctx;
+
+struct udp_client {
+	struct udp_route_ctx *ctx;
+
+	evutil_socket_t fd;
+	struct event *ev;
+
+	struct sockaddr_storage client_addr;
+	socklen_t client_addr_len;
+
+	time_t last_seen;
+
+	struct udp_client *next;
+};
+
+struct udp_route_ctx {
+	struct event_base *base;
+	struct worker *worker;
+	const struct route *route;
+
+	evutil_socket_t listen_fd;
+	struct event *listen_ev;
+
+	struct sockaddr_storage local_addr;
+	socklen_t local_addr_len;
+
+	struct udp_client *clients;
+};
+
+static int sockaddr_equal(
+	const struct sockaddr_storage *a,
+	socklen_t a_len,
+	const struct sockaddr_storage *b,
+	socklen_t b_len
+) {
+	if (a_len != b_len) {
+		return 0;
+	}
+
+	if (a->ss_family != b->ss_family) {
+		return 0;
+	}
+
+	return memcmp(a, b, (size_t)a_len) == 0;
+}
+
+static void free_udp_client(struct udp_client *c)
+{
+	if (c == NULL) {
+		return;
+	}
+
+	if (c->ev != NULL) {
+		event_free(c->ev);
+	}
+
+	if (c->fd >= 0) {
+		evutil_closesocket(c->fd);
+	}
+
+	free(c);
+}
+
+static void cleanup_idle_udp_clients(struct udp_route_ctx *ctx)
+{
+	time_t now = time(NULL);
+	struct udp_client **pp = &ctx->clients;
+
+	while (*pp != NULL) {
+		struct udp_client *c = *pp;
+
+		if (now - c->last_seen <= UDP_CLIENT_IDLE_TIMEOUT_SEC) {
+			pp = &c->next;
+			continue;
+		}
+
+		*pp = c->next;
+		c->next = NULL;
+
+		LOG_INFO("udp client expired",
+			"client_family", _LOGV(c->client_addr.ss_family),
+			"client_len", _LOGV(c->client_addr_len)
+		);
+
+		free_udp_client(c);
+	}
+}
+
+static struct udp_client *find_udp_client(
+	struct udp_route_ctx *ctx,
+	const struct sockaddr_storage *addr,
+	socklen_t addr_len
+) {
+	for (struct udp_client *c = ctx->clients; c != NULL; c = c->next) {
+		if (sockaddr_equal(&c->client_addr, c->client_addr_len, addr, addr_len)) {
+			return c;
+		}
+	}
+
+	return NULL;
+}
+
+static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
+{
+	(void)events;
+
+	struct udp_client *c = arg;
+	struct udp_route_ctx *ctx = c->ctx;
+
+	unsigned char buf[UDP_MAX_PACKET];
+
+	for (;;) {
+		ssize_t n = recv(fd, (char *)buf, sizeof(buf), 0);
+		if (n < 0) {
+			int err = EVUTIL_SOCKET_ERROR();
+
+			if (err == EAGAIN || err == EWOULDBLOCK) {
+				return;
+			}
+
+			LOG_ERROR("udp upstream recv failed",
+				"err", _LOGV(evutil_socket_error_to_string(err))
+			);
+			return;
+		}
+
+		if (n == 0) {
+			return;
+		}
+
+		ssize_t sent = sendto(
+			ctx->listen_fd,
+			(const char *)buf,
+			(size_t)n,
+			0,
+			(const struct sockaddr *)&c->client_addr,
+			c->client_addr_len
+		);
+
+		if (sent < 0) {
+			int err = EVUTIL_SOCKET_ERROR();
+
+			LOG_ERROR("udp send to client failed",
+				"err", _LOGV(evutil_socket_error_to_string(err))
+			);
+			return;
+		}
+	}
+}
+
+static struct udp_client *create_udp_client(
+	struct udp_route_ctx *ctx,
+	const struct sockaddr_storage *client_addr,
+	socklen_t client_addr_len
+) {
+	const struct route *r = ctx->route;
+
+	struct udp_client *c = calloc(1, sizeof(*c));
+	if (c == NULL) {
+		return NULL;
+	}
+
+	c->ctx = ctx;
+	c->fd = -1;
+	c->client_addr = *client_addr;
+	c->client_addr_len = client_addr_len;
+	c->last_seen = time(NULL);
+
+	c->fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (c->fd < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("udp upstream socket failed",
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+		free_udp_client(c);
+		return NULL;
+	}
+
+	if (evutil_make_socket_nonblocking(c->fd) < 0) {
+		LOG_ERROR("evutil_make_socket_nonblocking failed");
+		free_udp_client(c);
+		return NULL;
+	}
+
+	struct sockaddr_in upstream_addr;
+	memset(&upstream_addr, 0, sizeof(upstream_addr));
+
+	upstream_addr.sin_family = AF_INET;
+	upstream_addr.sin_port = htons(r->upstream_port);
+
+	if (inet_pton(AF_INET, r->upstream_host, &upstream_addr.sin_addr) != 1) {
+		LOG_ERROR("invalid udp upstream address",
+			"upstream_host", _LOGV(r->upstream_host)
+		);
+		free_udp_client(c);
+		return NULL;
+	}
+
+	if (connect(
+			c->fd,
+			(const struct sockaddr *)&upstream_addr,
+			sizeof(upstream_addr)
+		) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("udp upstream connect failed",
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+		free_udp_client(c);
+		return NULL;
+	}
+
+	c->ev = event_new(ctx->base, c->fd, EV_READ | EV_PERSIST, upstream_read_cb, c);
+	if (c->ev == NULL) {
+		LOG_ERROR("event_new failed for udp upstream");
+		free_udp_client(c);
+		return NULL;
+	}
+
+	if (event_add(c->ev, NULL) < 0) {
+		LOG_ERROR("event_add failed for udp upstream");
+		free_udp_client(c);
+		return NULL;
+	}
+
+	c->next = ctx->clients;
+	ctx->clients = c;
+
+	LOG_INFO("udp client created",
+		"client_family", _LOGV(c->client_addr.ss_family),
+		"client_len", _LOGV(c->client_addr_len)
+	);
+
+	return c;
+}
+
+static int send_udp_payload_to_upstream(
+	struct udp_client *c,
+	const unsigned char *payload,
+	size_t payload_len
+) {
+	struct udp_route_ctx *ctx = c->ctx;
+	const struct route *r = ctx->route;
+
+	if (!r->send_proxy_v2) {
+		ssize_t sent = send(c->fd, (const char *)payload, payload_len, 0);
+		if (sent < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		return 0;
+	}
+
+	if (c->client_addr.ss_family != AF_INET ||
+		ctx->local_addr.ss_family != AF_INET) {
+		LOG_ERROR("PROXY v2 UDP currently only supports IPv4",
+			"client_family", _LOGV(c->client_addr.ss_family),
+			"local_family", _LOGV(ctx->local_addr.ss_family)
+		);
+		return -EAFNOSUPPORT;
+	}
+
+	unsigned char hdr[256];
+	size_t hdr_len = 0;
+
+	int rc = proxy_v2_build(
+		hdr,
+		sizeof(hdr),
+		(const struct sockaddr *)&c->client_addr,
+		c->client_addr_len,
+		(const struct sockaddr *)&ctx->local_addr,
+		ctx->local_addr_len,
+		SOCK_DGRAM,
+		&hdr_len
+	);
+	if (rc != 0) {
+		return rc;
+	}
+
+	if (hdr_len + payload_len > UDP_MAX_PACKET) {
+		return -EMSGSIZE;
+	}
+
+	unsigned char out[UDP_MAX_PACKET];
+
+	memcpy(out, hdr, hdr_len);
+	memcpy(out + hdr_len, payload, payload_len);
+
+	ssize_t sent = send(c->fd, (const char *)out, hdr_len + payload_len, 0);
+	if (sent < 0) {
+		return -EVUTIL_SOCKET_ERROR();
+	}
+
+	return 0;
+}
+
+static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
+{
+	(void)events;
+
+	struct udp_route_ctx *ctx = arg;
+
+	cleanup_idle_udp_clients(ctx);
+
+	for (;;) {
+		unsigned char buf[UDP_MAX_PACKET];
+
+		struct sockaddr_storage client_addr;
+		socklen_t client_addr_len = sizeof(client_addr);
+
+		memset(&client_addr, 0, sizeof(client_addr));
+
+		ssize_t n = recvfrom(
+			fd,
+			(char *)buf,
+			sizeof(buf),
+			0,
+			(struct sockaddr *)&client_addr,
+			&client_addr_len
+		);
+
+		if (n < 0) {
+			int err = EVUTIL_SOCKET_ERROR();
+
+			if (err == EAGAIN || err == EWOULDBLOCK) {
+				return;
+			}
+
+			LOG_ERROR("udp recvfrom failed",
+				"err", _LOGV(evutil_socket_error_to_string(err))
+			);
+			return;
+		}
+
+		if (n == 0) {
+			continue;
+		}
+
+		struct udp_client *c = find_udp_client(ctx, &client_addr, client_addr_len);
+		if (c == NULL) {
+			c = create_udp_client(ctx, &client_addr, client_addr_len);
+			if (c == NULL) {
+				return;
+			}
+		}
+
+		c->last_seen = time(NULL);
+
+		int rc = send_udp_payload_to_upstream(c, buf, (size_t)n);
+		if (rc < 0) {
+			LOG_ERROR("udp send to upstream failed",
+				"err", _LOGV(strerror(-rc))
+			);
+			return;
+		}
+	}
+}
+
+int start_udp_route(
+	struct worker *w,
+	const struct route *r,
+	struct udp_route_ctx **out
+) {
+	struct sockaddr_in listen_addr;
+	memset(&listen_addr, 0, sizeof(listen_addr));
+
+	listen_addr.sin_family = AF_INET;
+	listen_addr.sin_port = htons(r->listen_port);
+
+	if (inet_pton(AF_INET, r->listen_host, &listen_addr.sin_addr) != 1) {
+		LOG_ERROR("invalid udp listen address",
+			"listen_host", _LOGV(r->listen_host)
+		);
+		return -EINVAL;
+	}
+
+	struct udp_route_ctx *ctx = calloc(1, sizeof(*ctx));
+	if (ctx == NULL) {
+		return -ENOMEM;
+	}
+
+	ctx->base = w->base;
+	ctx->worker = w;
+	ctx->route = r;
+	ctx->listen_fd = -1;
+
+	ctx->listen_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	if (ctx->listen_fd < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("udp listen socket failed",
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+		free(ctx);
+		return -errno;
+	}
+
+	evutil_make_socket_closeonexec(ctx->listen_fd);
+
+	if (evutil_make_socket_nonblocking(ctx->listen_fd) < 0) {
+		LOG_ERROR("evutil_make_socket_nonblocking failed");
+		evutil_closesocket(ctx->listen_fd);
+		free(ctx);
+		return -EINVAL;
+	}
+
+	int one = 1;
+	setsockopt(
+		ctx->listen_fd,
+		SOL_SOCKET,
+		SO_REUSEADDR,
+		(const char *)&one,
+		sizeof(one)
+	);
+
+	if (bind(
+			ctx->listen_fd,
+			(const struct sockaddr *)&listen_addr,
+			sizeof(listen_addr)
+		) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("udp bind failed",
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+		evutil_closesocket(ctx->listen_fd);
+		free(ctx);
+		return -EADDRINUSE;
+	}
+
+	ctx->local_addr_len = sizeof(ctx->local_addr);
+	memset(&ctx->local_addr, 0, sizeof(ctx->local_addr));
+
+	if (getsockname(
+			ctx->listen_fd,
+			(struct sockaddr *)&ctx->local_addr,
+			&ctx->local_addr_len
+		) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("udp getsockname failed",
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+		evutil_closesocket(ctx->listen_fd);
+		free(ctx);
+		return -EINVAL;
+	}
+
+	ctx->listen_ev = event_new(
+		ctx->base,
+		ctx->listen_fd,
+		EV_READ | EV_PERSIST,
+		listen_read_cb,
+		ctx
+	);
+	if (ctx->listen_ev == NULL) {
+		LOG_ERROR("event_new failed for udp listener");
+		evutil_closesocket(ctx->listen_fd);
+		free(ctx);
+		return -ENOMEM;
+	}
+
+	if (event_add(ctx->listen_ev, NULL) < 0) {
+		LOG_ERROR("event_add failed for udp listener");
+		event_free(ctx->listen_ev);
+		evutil_closesocket(ctx->listen_fd);
+		free(ctx);
+		return -EINVAL;
+	}
+
+	char opts[128];
+
+	route_options_str(r, opts, sizeof(opts));
+
+	LOG_INFO("udp route started",
+		"line", _LOGV(r->line_no),
+		"listen_host", _LOGV(r->listen_host),
+		"listen_port", _LOGV(r->listen_port),
+		"upstream_host", _LOGV(r->upstream_host),
+		"upstream_port", _LOGV(r->upstream_port),
+		"options", _LOGV(opts[0] ? opts : "")
+	);
+
+	*out = ctx;
+	return 0;
+}
+
+void free_udp_route(struct udp_route_ctx *ctx)
+{
+	if (ctx == NULL) {
+		return;
+	}
+
+	if (ctx->listen_ev != NULL) {
+		event_free(ctx->listen_ev);
+	}
+
+	if (ctx->listen_fd >= 0) {
+		evutil_closesocket(ctx->listen_fd);
+	}
+
+	struct udp_client *c = ctx->clients;
+	while (c != NULL) {
+		struct udp_client *next = c->next;
+		free_udp_client(c);
+		c = next;
+	}
+
+	free(ctx);
+}

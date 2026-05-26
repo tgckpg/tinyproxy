@@ -10,6 +10,7 @@
 #include "signal.h"
 #include "file_conf.h"
 #include "tcp_route.h"
+#include "udp_route.h"
 
 static void usage(FILE *out, const char *prog)
 {
@@ -37,8 +38,10 @@ int main(int argc, char **argv)
 	struct route *routes = NULL;
 	size_t route_count = 0;
 
-	struct listener_ctx **tcp_ctxs = NULL;
+	struct tcp_route_ctx **tcp_ctxs = NULL;
+	struct udp_route_ctx **udp_ctxs = NULL;
 	size_t tcp_ctx_count = 0;
+	size_t udp_ctx_count = 0;
 
 	struct event_base *base = NULL;
 	struct signal_events signals;
@@ -89,7 +92,13 @@ int main(int argc, char **argv)
 
 	tcp_ctxs = calloc(route_count, sizeof(*tcp_ctxs));
 	if (tcp_ctxs == NULL) {
-		LOG_ERROR("calloc failed", "err", _LOGV(strerror(errno)));
+		LOG_ERROR("tcp calloc failed", "err", _LOGV(strerror(errno)));
+		goto out;
+	}
+
+	udp_ctxs = calloc(route_count, sizeof(*udp_ctxs));
+	if (udp_ctxs == NULL) {
+		LOG_ERROR("udp calloc failed", "err", _LOGV(strerror(errno)));
 		goto out;
 	}
 
@@ -132,8 +141,10 @@ int main(int argc, char **argv)
 			break;
 
 		case PROTO_UDP:
-			LOG_WARN("skipping udp route: Not implemented yet");
-			rc = 0;
+			rc = start_udp_route(&w, r, &udp_ctxs[udp_ctx_count]);
+			if (rc == 0) {
+				udp_ctx_count++;
+			}
 			break;
 
 		default:

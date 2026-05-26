@@ -4,19 +4,31 @@ import asyncio
 import os
 import sys
 
-from .support import SkipTest, raise_fd_limit, run_default_tinyproxy
+from .support import (
+	SkipTest,
+	raise_fd_limit,
+	run_default_tcp_tinyproxy,
+	run_default_udp_tinyproxy,
+)
 from . import test_tcp_basic
 from . import test_tcp_stress
+from . import test_udp_basic
 from . import test_haproxy_proxy_v2
+from . import test_udp_proxy_v2
 
 
-DEFAULT_PROXY_TEST_MODULES = [
+TCP_PROXY_TEST_MODULES = [
 	test_tcp_basic,
 	test_tcp_stress,
 ]
 
+UDP_PROXY_TEST_MODULES = [
+	test_udp_basic,
+]
+
 STANDALONE_TEST_MODULES = [
 	test_haproxy_proxy_v2,
+	test_udp_proxy_v2,
 ]
 
 
@@ -49,8 +61,14 @@ async def main_async(proxy_bin: str) -> int:
 	passed = 0
 	skipped = 0
 
-	async with run_default_tinyproxy(proxy_bin):
-		for module in DEFAULT_PROXY_TEST_MODULES:
+	async with run_default_tcp_tinyproxy(proxy_bin):
+		for module in TCP_PROXY_TEST_MODULES:
+			p, s = await run_module_tests(module)
+			passed += p
+			skipped += s
+
+	async with run_default_udp_tinyproxy(proxy_bin):
+		for module in UDP_PROXY_TEST_MODULES:
 			p, s = await run_module_tests(module)
 			passed += p
 			skipped += s

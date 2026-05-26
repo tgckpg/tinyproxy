@@ -16,6 +16,31 @@
 #include "route.h"
 #include "tcp_route.h"
 
+struct tcp_route_ctx {
+	struct event_base *accept_base;
+	struct worker *worker;
+	const struct route *route;
+	struct evconnlistener *listener;
+};
+
+typedef struct conn_s {
+	struct worker *owner;
+	const struct route *route;
+
+	struct bufferevent *client;
+	struct bufferevent *upstream;
+
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_addr_len;
+} conn_t;
+
+struct accepted_client {
+	evutil_socket_t fd;
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_addr_len;
+	const struct route *route;
+};
+
 static void free_conn(conn_t *conn) {
 	if (conn == NULL) {
 		return;
@@ -198,7 +223,7 @@ static void accept_cb(
 ) {
 	(void)listener;
 
-	struct listener_ctx *ctx = arg;
+	struct tcp_route_ctx *ctx = arg;
 	struct accepted_client ac = {
 		.fd = client_fd,
 		.route = ctx->route,
@@ -229,7 +254,7 @@ static void accept_error_cb(struct evconnlistener *listener, void *arg) {
 int start_tcp_route(
 	struct worker *w,
 	const struct route *r,
-	struct listener_ctx **out)
+	struct tcp_route_ctx **out)
 {
 	struct sockaddr_in listen_addr;
 	memset(&listen_addr, 0, sizeof(listen_addr));
@@ -241,7 +266,7 @@ int start_tcp_route(
 		return -EINVAL;
 	}
 
-	struct listener_ctx *ctx = calloc(1, sizeof(*ctx));
+	struct tcp_route_ctx *ctx = calloc(1, sizeof(*ctx));
 	if (ctx == NULL) {
 		return -ENOMEM;
 	}
@@ -285,7 +310,7 @@ int start_tcp_route(
 	return 0;
 }
 
-void free_tcp_route(struct listener_ctx *ctx)
+void free_tcp_route(struct tcp_route_ctx *ctx)
 {
 	if (ctx == NULL) {
 		return;

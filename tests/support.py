@@ -5,6 +5,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import struct
+import ipaddress
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -18,10 +20,152 @@ LISTEN_HOST = "127.0.0.1"
 PROXY_PORT = 31232
 BACKEND_PORT = 41232
 
+PROXY_V2_SIG = b"\r\n\r\n\x00\r\nQUIT\n"
+
 
 class SkipTest(Exception):
 	pass
 
+
+class UDPClientProtocol(asyncio.DatagramProtocol):
+	def __init__(self, payload: bytes, future: asyncio.Future[bytes]) -> None:
+		self.payload = payload
+		self.future = future
+		self.transport: asyncio.DatagramTransport | None = None
+
+	def connection_made(self, transport: asyncio.BaseTransport) -> None:
+		self.transport = transport  # type: ignore[assignment]
+		self.transport.sendto(self.payload)
+
+	def datagram_received(self, data: bytes, addr) -> None:
+		if not self.future.done():
+			self.future.set_result(data)
+
+	def error_received(self, exc: Exception) -> None:
+		if not self.future.done():
+			self.future.set_exception(exc)
+
+class UDPProxyV2EchoServerProtocol(asyncio.DatagramProtocol):
+	def __init__(self) -> None:
+		self.transport: asyncio.DatagramTransport | None = None
+		self.seen: asyncio.Future[None] | None = None
+		self.error: Exception | None = None
+		self.last_src: tuple[str, int] | None = None
+		self.last_dst: tuple[str, int] | None = None
+		self.last_raw: bytes | None = None
+
+	def connection_made(self, transport: asyncio.BaseTransport) -> None:
+		self.transport = transport  # type: ignore[assignment]
+		loop = asyncio.get_running_loop()
+		self.seen = loop.create_future()
+
+	def datagram_received(self, data: bytes, addr) -> None:
+		self.last_raw = data
+
+		try:
+			src, dst, payload = parse_proxy_v2_udp4_packet(data)
+		except Exception as exc:
+			self.error = exc
+			if self.seen is not None and not self.seen.done():
+				self.seen.set_exception(exc)
+			return
+
+		self.last_src = src
+		self.last_dst = dst
+
+		if self.seen is not None and not self.seen.done():
+			self.seen.set_result(None)
+
+		if self.transport is not None:
+			self.transport.sendto(payload, addr)
+
+class UDPRoundtripClientProtocol(asyncio.DatagramProtocol):
+	def __init__(self) -> None:
+		self.transport: asyncio.DatagramTransport | None = None
+		self.pending: asyncio.Future[bytes] | None = None
+
+	def connection_made(self, transport: asyncio.BaseTransport) -> None:
+		self.transport = transport  # type: ignore[assignment]
+
+	def datagram_received(self, data: bytes, addr) -> None:
+		if self.pending is not None and not self.pending.done():
+			self.pending.set_result(data)
+
+	def error_received(self, exc: Exception) -> None:
+		if self.pending is not None and not self.pending.done():
+			self.pending.set_exception(exc)
+
+	async def roundtrip(self, payload: bytes, timeout: float = 3.0) -> bytes:
+		if self.transport is None:
+			raise RuntimeError("UDP transport is not ready")
+
+		if self.pending is not None and not self.pending.done():
+			raise RuntimeError("UDP roundtrip already in progress")
+
+		loop = asyncio.get_running_loop()
+		self.pending = loop.create_future()
+
+		self.transport.sendto(payload)
+
+		try:
+			return await asyncio.wait_for(self.pending, timeout=timeout)
+		finally:
+			self.pending = None
+
+@asynccontextmanager
+async def udp_proxy_client():
+	loop = asyncio.get_running_loop()
+
+	transport, protocol = await loop.create_datagram_endpoint(
+		UDPRoundtripClientProtocol,
+		remote_addr=(LISTEN_HOST, PROXY_PORT),
+	)
+
+	try:
+		yield protocol
+	finally:
+		transport.close()
+
+def parse_proxy_v2_udp4_packet(data: bytes) -> tuple[tuple[str, int], tuple[str, int], bytes]:
+	if len(data) < 28:
+		raise ValueError(f"packet too short for PROXY v2 UDP4 header: {len(data)} bytes")
+
+	if data[:12] != PROXY_V2_SIG:
+		raise ValueError("bad PROXY v2 signature")
+
+	ver_cmd = data[12]
+	if ver_cmd != 0x21:
+		raise ValueError(f"bad PROXY v2 version/cmd: 0x{ver_cmd:02x}")
+
+	fam_proto = data[13]
+	if fam_proto != 0x12:
+		raise ValueError(f"bad PROXY v2 family/proto: 0x{fam_proto:02x}")
+
+	addr_len = struct.unpack("!H", data[14:16])[0]
+	if addr_len != 12:
+		raise ValueError(f"bad PROXY v2 UDP4 addr_len: {addr_len}")
+
+	src_ip = str(ipaddress.IPv4Address(data[16:20]))
+	dst_ip = str(ipaddress.IPv4Address(data[20:24]))
+	src_port, dst_port = struct.unpack("!HH", data[24:28])
+
+	payload = data[28:]
+
+	return (src_ip, src_port), (dst_ip, dst_port), payload
+
+async def udp_proxy_roundtrip(payload: bytes, timeout: float = 3.0) -> bytes:
+	loop = asyncio.get_running_loop()
+	future: asyncio.Future[bytes] = loop.create_future()
+
+	transport, _protocol = await loop.create_datagram_endpoint(
+		lambda: UDPClientProtocol(payload, future),
+		remote_addr=(LISTEN_HOST, PROXY_PORT),
+	)
+
+	try:
+		return await asyncio.wait_for(future, timeout=timeout)
+	finally:
+		transport.close()
 
 def raise_fd_limit(wanted: int) -> None:
 	if resource is None:
@@ -206,6 +350,7 @@ async def run_tinyproxy_with_conf(
 	conf_text: str,
 	listen_host: str = LISTEN_HOST,
 	listen_port: int = PROXY_PORT,
+	proto: str = "tcp",
 ):
 	conf_path = None
 	proxy = None
@@ -220,7 +365,10 @@ async def run_tinyproxy_with_conf(
 			text=True,
 		)
 
-		await wait_for_port(listen_host, listen_port)
+		if proto == "tcp":
+			await wait_for_port(listen_host, listen_port)
+		else:
+			await asyncio.sleep(0.1)
 
 		if proxy.poll() is not None:
 			stderr = proxy.stderr.read() if proxy.stderr else ""
@@ -247,7 +395,7 @@ async def run_tinyproxy_with_conf(
 
 
 @asynccontextmanager
-async def run_default_tinyproxy(proxy_bin: str):
+async def run_default_tcp_tinyproxy(proxy_bin: str):
 	conf_text = (
 		f"{LISTEN_HOST}:{PROXY_PORT} "
 		f"{LISTEN_HOST}:{BACKEND_PORT} "
@@ -260,5 +408,61 @@ async def run_default_tinyproxy(proxy_bin: str):
 			conf_text=conf_text,
 			listen_host=LISTEN_HOST,
 			listen_port=PROXY_PORT,
+			proto="tcp",
 		) as fixture:
 			yield fixture
+
+@asynccontextmanager
+async def run_default_udp_tinyproxy(proxy_bin: str):
+	conf_text = (
+		f"{LISTEN_HOST}:{PROXY_PORT} "
+		f"{LISTEN_HOST}:{BACKEND_PORT} "
+		f"udp\n"
+	)
+
+	async with run_udp_echo_backend(LISTEN_HOST, BACKEND_PORT):
+		async with run_tinyproxy_with_conf(
+			proxy_bin=proxy_bin,
+			conf_text=conf_text,
+			listen_host=LISTEN_HOST,
+			listen_port=PROXY_PORT,
+			proto="udp",
+		) as fixture:
+			yield fixture
+
+class UDPEchoServerProtocol(asyncio.DatagramProtocol):
+	def connection_made(self, transport: asyncio.BaseTransport) -> None:
+		self.transport = transport  # type: ignore[assignment]
+
+	def datagram_received(self, data: bytes, addr) -> None:
+		self.transport.sendto(data, addr)
+
+
+@asynccontextmanager
+async def run_udp_echo_backend(host: str, port: int):
+	loop = asyncio.get_running_loop()
+
+	transport, _protocol = await loop.create_datagram_endpoint(
+		UDPEchoServerProtocol,
+		local_addr=(host, port),
+	)
+
+	try:
+		yield
+	finally:
+		transport.close()
+
+
+@asynccontextmanager
+async def run_udp_proxy_v2_echo_backend(host: str, port: int):
+	loop = asyncio.get_running_loop()
+
+	transport, protocol = await loop.create_datagram_endpoint(
+		UDPProxyV2EchoServerProtocol,
+		local_addr=(host, port),
+	)
+
+	try:
+		yield protocol
+	finally:
+		transport.close()

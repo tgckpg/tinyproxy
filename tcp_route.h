@@ -3,10 +3,12 @@
 
 #include "route.h"
 
+struct tcp_route_ctx;
+
 int start_tcp_route(
 	struct worker *w,
 	const struct route *r,
-	struct listener_ctx **out);
+	struct tcp_route_ctx **out);
 
-void free_tcp_route(struct listener_ctx *ctx);
+void free_tcp_route(struct tcp_route_ctx *ctx);
 #endif
