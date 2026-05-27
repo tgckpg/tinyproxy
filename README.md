@@ -1,6 +1,6 @@
 # tinyproxy
 
-This is a work-in-progress tiny L4 proxy.
+A tiny L4 proxy.
 
 The goal is not to become HAProxy, Envoy, nginx, or a general-purpose load balancer but to stay small and practical for simple inetd-style forwarding tasks.
 
@@ -8,10 +8,9 @@ The goal is not to become HAProxy, Envoy, nginx, or a general-purpose load balan
 
 1. Should feel like an inet utility.
 2. Be simple and effective.
-3. Run in the foreground.
-4. Use libevent2 for readability and future maintainability.
-5. Prefer explicit behavior over magic.
-6. Avoid protocol-specific features unless they are small and practical.
+3. Be explicit and performant
+4. Run in the foreground.
+5. Avoid protocol-specific features unless they are small and practical.
 
 ## Configuration
 
@@ -50,6 +49,8 @@ Run with:
 ```sh
 tinyproxy -c tinyproxy.conf
 ```
+
+check tinyproxy.conf for a more complete setup
 
 ## Supported protocols
 
@@ -138,13 +139,3 @@ Use HAProxy, Envoy, nginx, Cilium, or a real load balancer if you need those.
 ## Development status
 
 This project is still experimental.
-
-Currently tested areas include:
-
-- TCP roundtrip forwarding
-- TCP stress forwarding
-- TCP Proxy Protocol v2 forwarding
-- UDP roundtrip forwarding
-- UDP Proxy Protocol v2 forwarding
-
-Expect rough edges.

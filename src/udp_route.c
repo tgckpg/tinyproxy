@@ -12,6 +12,7 @@
 #include "env.h"
 #include "file_conf.h"
 #include "compat_socket.h"
+#include "compat_file.h"
 #include "proxy_proto_v2.h"
 #include "route.h"
 #include "udp_route.h"
@@ -488,7 +489,7 @@ int start_udp_route(
 	if (r->upstream.kind == ENDPOINT_UNIX_DGRAM) {
 		const char *runtime_dir = tinyproxy_runtime_dir();
 
-		if (mkdir(runtime_dir, 0755) < 0 && errno != EEXIST) {
+		if (compat_mkdir(runtime_dir, 0755) < 0 && errno != EEXIST) {
 			LOG_ERROR("failed to create unix-dgram runtime dir",
 				"dir", _LOGV(runtime_dir),
 				"err", _LOGV(strerror(errno))
