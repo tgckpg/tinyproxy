@@ -229,12 +229,14 @@ jobs:
           for asset in release-assets/*; do
             name="$(basename "$asset")"
 
-            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
-              echo "Deleting existing release asset: $name"
-              gh release delete-asset "$tag" "$name" -y
+            existing="$(
+              gh release view "$tag" --json assets --jq '.assets[].name' |
+                awk -v target="$name" 'tolower($0) == tolower(target) { print; exit }'
+            )"
 
-              echo "Assets after delete:"
-              gh release view "$tag" --json assets --jq '.assets[].name'
+            if [ -n "$existing" ]; then
+              echo "Deleting existing release asset: $existing"
+              gh release delete-asset "$tag" "$existing" -y
             fi
 
             echo "Uploading release asset: $name"
