@@ -223,11 +223,19 @@ jobs:
               --generate-notes
           fi
 
+          echo "Assets currently on release:"
+          gh release view "$tag" --json assets --jq '.assets[].name'
+
           for asset in release-assets/*; do
             name="$(basename "$asset")"
 
-            echo "Deleting existing release asset if present: $name"
-            gh release delete-asset "$tag" "$name" -y >/dev/null 2>&1 || true
+            if gh release view "$tag" --json assets --jq '.assets[].name' | grep -Fxq "$name"; then
+              echo "Deleting existing release asset: $name"
+              gh release delete-asset "$tag" "$name" -y
+
+              echo "Assets after delete:"
+              gh release view "$tag" --json assets --jq '.assets[].name'
+            fi
 
             echo "Uploading release asset: $name"
             gh release upload "$tag" "$asset"
