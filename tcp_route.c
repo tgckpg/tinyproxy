@@ -9,6 +9,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef _WIN32
+#include <sys/un.h>
+#endif
+
 #include "klog.h"
 #include "file_conf.h"
 #include "compat_socket.h"
@@ -164,6 +168,70 @@ static void event_cb(struct bufferevent *bev, short events, void *arg) {
 	(void)bev;
 }
 
+static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
+{
+	if (ep == NULL) {
+		return -EINVAL;
+	}
+
+	switch (ep->kind) {
+	case ENDPOINT_TCP: {
+		struct sockaddr_in addr;
+
+		memset(&addr, 0, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(ep->port);
+
+		if (inet_pton(AF_INET, ep->host, &addr.sin_addr) != 1) {
+			return -EINVAL;
+		}
+
+		if (bufferevent_socket_connect(
+			    bev,
+			    (struct sockaddr *)&addr,
+			    sizeof(addr)) < 0) {
+			return -errno;
+		}
+
+		return 0;
+	}
+
+	case ENDPOINT_UNIX:
+#ifdef _WIN32
+		return -ENOTSUP;
+#else
+	{
+		struct sockaddr_un addr;
+
+		memset(&addr, 0, sizeof(addr));
+		addr.sun_family = AF_UNIX;
+
+		if (ep->path[0] == '\0') {
+			return -EINVAL;
+		}
+
+		if (strlen(ep->path) >= sizeof(addr.sun_path)) {
+			return -ENAMETOOLONG;
+		}
+
+		strcpy(addr.sun_path, ep->path);
+
+		if (bufferevent_socket_connect(
+			    bev,
+			    (struct sockaddr *)&addr,
+			    sizeof(addr)) < 0) {
+			return -errno;
+		}
+
+		return 0;
+	}
+#endif
+
+	default:
+		return -ENOTSUP;
+	}
+}
+
 static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));
 	if (conn == NULL) {
@@ -197,32 +265,8 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	bufferevent_setwatermark(conn->client, EV_READ, 0, BEV_READ_HIGH_WATER);
 	bufferevent_setwatermark(conn->upstream, EV_READ, 0, BEV_READ_HIGH_WATER);
 
-	bufferevent_setcb(
-		conn->client,
-		pipe_read_cb,
-		pipe_write_cb,
-		event_cb,
-		conn
-	);
-
-	bufferevent_setcb(
-		conn->upstream,
-		pipe_read_cb,
-		pipe_write_cb,
-		event_cb,
-		conn
-	);
-
-	struct sockaddr_in upstream_addr;
-	memset(&upstream_addr, 0, sizeof(upstream_addr));
-	upstream_addr.sin_family = AF_INET;
-	upstream_addr.sin_port = htons(r->upstream_port);
-
-	if (inet_pton(AF_INET, r->upstream_host, &upstream_addr.sin_addr) != 1) {
-		LOG_ERROR("invalid upstream address");
-		free_conn(conn);
-		return;
-	}
+	bufferevent_setcb(conn->client, pipe_read_cb, pipe_write_cb, event_cb, conn);
+	bufferevent_setcb(conn->upstream, pipe_read_cb, pipe_write_cb, event_cb, conn);
 
 	/*
 	 * Do not read from the client yet.
@@ -233,23 +277,25 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	bufferevent_disable(conn->client, EV_READ);
 
 	set_connect_timeout(conn, r);
-	if (bufferevent_socket_connect(
-			conn->upstream,
-			(struct sockaddr *)&upstream_addr,
-			sizeof(upstream_addr)
-		) < 0) {
-		LOG_ERROR("upstream connect failed");
+
+	rc = connect_upstream(conn->upstream, &r->upstream);
+	if (rc < 0) {
+		LOG_ERROR("upstream connect failed",
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"err", _LOGV(strerror(-rc))
+		);
 		free_conn(conn);
 		return;
 	}
 
-	if (r->opts.keep_alive) {
+	if (r->opts.keep_alive && r->upstream.kind == ENDPOINT_TCP) {
 		evutil_socket_t upstream_fd = bufferevent_getfd(conn->upstream);
 
 		if (upstream_fd >= 0) {
 			int rc = set_socket_keepalive(upstream_fd, r);
 			if (rc < 0) {
 				LOG_WARN("failed to enable upstream TCP keepalive",
+					"upstream", _LOGV_ENDPOINT(&r->upstream),
 					"err", _LOGV(strerror(-rc))
 				);
 			}
@@ -351,10 +397,12 @@ int start_tcp_route(
 	struct sockaddr_in listen_addr;
 	memset(&listen_addr, 0, sizeof(listen_addr));
 	listen_addr.sin_family = AF_INET;
-	listen_addr.sin_port = htons(r->listen_port);
+	listen_addr.sin_port = htons(r->listen.port);
 
-	if (inet_pton(AF_INET, r->listen_host, &listen_addr.sin_addr) != 1) {
-		LOG_ERROR("invalid listen address", "listen_host", _LOGV(r->listen_host));
+	if (inet_pton(AF_INET, r->listen.host, &listen_addr.sin_addr) != 1) {
+		LOG_ERROR("invalid listen address",
+			"listen", _LOGV_ENDPOINT(&r->listen)
+		);
 		return -EINVAL;
 	}
 
@@ -391,10 +439,8 @@ int start_tcp_route(
 
 	LOG_INFO("route started",
 		"line", _LOGV(r->line_no),
-		"listen_host", _LOGV(r->listen_host),
-		"listen_port", _LOGV(r->listen_port),
-		"upstream_host", _LOGV(r->upstream_host),
-		"upstream_port", _LOGV(r->upstream_port),
+		"listen", _LOGV_ENDPOINT(&r->listen),
+		"upstream", _LOGV_ENDPOINT(&r->upstream),
 		"options", _LOGV(opts[0] ? opts : "")
 	);
 

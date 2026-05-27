@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 
+struct endpoint;
+
 enum log_value_type {
 	LOG_VALUE_STR = 1,
 	LOG_VALUE_INT,
@@ -11,6 +13,7 @@ enum log_value_type {
 	LOG_VALUE_ULONG,
 	LOG_VALUE_LLONG,
 	LOG_VALUE_ULLONG,
+	LOG_VALUE_ENDPOINT,
 };
 
 struct log_value {
@@ -23,6 +26,7 @@ struct log_value {
 		unsigned long ul;
 		long long ll;
 		unsigned long long ull;
+		const struct endpoint *endpoint;
 	} v;
 };
 
@@ -63,6 +67,11 @@ static inline struct log_value log_value_ullong(unsigned long long v)
 	return (struct log_value){ LOG_VALUE_ULLONG, { .ull = v } };
 }
 
+static inline struct log_value log_value_endpoint(const struct endpoint *v)
+{
+	return (struct log_value){ LOG_VALUE_ENDPOINT, { .endpoint = v } };
+}
+
 #define _LOGV(v) \
 	_Generic((v), \
 		char *: log_value_str, \
@@ -78,6 +87,8 @@ static inline struct log_value log_value_ullong(unsigned long long v)
 		long long: log_value_llong, \
 		unsigned long long: log_value_ullong \
 	)(v)
+
+#define _LOGV_ENDPOINT(v) log_value_endpoint(v)
 
 /*
  * Structured fields must be passed as:

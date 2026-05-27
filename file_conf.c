@@ -193,6 +193,37 @@ static inline void route_options_set_defaults(struct route_options *opts)
 	opts->connect_timeout_sec = ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC;
 }
 
+static int parse_endpoint(const char *s, struct endpoint *ep)
+{
+	const char *path;
+
+	memset(ep, 0, sizeof(*ep));
+
+	if (strncmp(s, "unix:", 5) == 0) {
+		path = s + 5;
+
+		if (path[0] == '\0') {
+			return -1;
+		}
+
+		if (strlen(path) >= sizeof(ep->path)) {
+			return -1;
+		}
+
+		ep->kind = ENDPOINT_UNIX;
+		strcpy(ep->path, path);
+		return 0;
+	}
+
+	ep->kind = ENDPOINT_TCP;
+
+	if (split_host_port(s, ep->host, sizeof(ep->host), &ep->port) != 0) {
+		return -1;
+	}
+
+	return 0;
+}
+
 static int parse_route_line(char *line, struct route *route)
 {
 	char *fields[4] = {0};
@@ -217,15 +248,11 @@ static int parse_route_line(char *line, struct route *route)
 	memset(route, 0, sizeof(*route));
 	route_options_set_defaults(&route->opts);
 
-	if (split_host_port(fields[0],
-	                    route->listen_host, sizeof(route->listen_host),
-	                    &route->listen_port) != 0) {
+	if (parse_endpoint(fields[0], &route->listen) != 0) {
 		return -1;
 	}
 
-	if (split_host_port(fields[1],
-	                    route->upstream_host, sizeof(route->upstream_host),
-	                    &route->upstream_port) != 0) {
+	if (parse_endpoint(fields[1], &route->upstream) != 0) {
 		return -1;
 	}
 

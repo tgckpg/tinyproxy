@@ -11,6 +11,8 @@
 #include <time.h>
 #endif
 
+#include "route.h"
+
 static int localtime_compat(const time_t *t, struct tm *out)
 {
 #ifdef _WIN32
@@ -55,6 +57,28 @@ static void print_quoted_value(const char *s)
 	fputc('"', stderr);
 }
 
+static void log_print_endpoint(FILE *out, const struct endpoint *ep)
+{
+	if (ep == NULL) {
+		fputs("<nil>", out);
+		return;
+	}
+
+	switch (ep->kind) {
+	case ENDPOINT_TCP:
+		fprintf(out, "%s:%u", ep->host, ep->port);
+		return;
+
+	case ENDPOINT_UNIX:
+		fprintf(out, "unix:%s", ep->path);
+		return;
+
+	default:
+		fputs("<unknown>", out);
+		return;
+	}
+}
+
 static void print_log_value(struct log_value value)
 {
 	switch (value.type) {
@@ -78,6 +102,9 @@ static void print_log_value(struct log_value value)
 		break;
 	case LOG_VALUE_ULLONG:
 		fprintf(stderr, "%llu", value.v.ull);
+		break;
+	case LOG_VALUE_ENDPOINT:
+		log_print_endpoint(stderr, value.v.endpoint);
 		break;
 	default:
 		fputs("<invalid>", stderr);

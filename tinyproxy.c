@@ -156,10 +156,9 @@ int main(int argc, char **argv)
 		if (rc != 0) {
 			LOG_ERROR("failed to start route",
 				"line", _LOGV(r->line_no),
-				"listen_host", _LOGV(r->listen_host),
-				"listen_port", _LOGV(r->listen_port),
-				"upstream_host", _LOGV(r->upstream_host),
-				"upstream_port", _LOGV(r->upstream_port));
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream)
+			);
 			goto out;
 		}
 	}

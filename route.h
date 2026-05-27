@@ -24,12 +24,23 @@ struct route_options {
 	int connect_timeout_sec;
 };
 
-struct route {
-	char listen_host[ROUTE_HOST_MAX];
-	uint16_t listen_port;
+enum endpoint_kind {
+	ENDPOINT_TCP,
+	ENDPOINT_UNIX,
+};
 
-	char upstream_host[ROUTE_HOST_MAX];
-	uint16_t upstream_port;
+struct endpoint {
+	enum endpoint_kind kind;
+
+	char host[256];
+	uint16_t port;
+
+	char path[108]; /* sockaddr_un sun_path limit on Linux */
+};
+
+struct route {
+	struct endpoint listen;
+	struct endpoint upstream;
 
 	enum proto proto;
 	struct route_options opts;

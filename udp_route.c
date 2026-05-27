@@ -206,11 +206,11 @@ static struct udp_client *create_udp_client(
 	memset(&upstream_addr, 0, sizeof(upstream_addr));
 
 	upstream_addr.sin_family = AF_INET;
-	upstream_addr.sin_port = htons(r->upstream_port);
+	upstream_addr.sin_port = htons(r->upstream.port);
 
-	if (inet_pton(AF_INET, r->upstream_host, &upstream_addr.sin_addr) != 1) {
+	if (inet_pton(AF_INET, r->upstream.host, &upstream_addr.sin_addr) != 1) {
 		LOG_ERROR("invalid udp upstream address",
-			"upstream_host", _LOGV(r->upstream_host)
+			"upstream", _LOGV_ENDPOINT(&r->upstream)
 		);
 		free_udp_client(c);
 		return NULL;
@@ -385,11 +385,11 @@ int start_udp_route(
 	memset(&listen_addr, 0, sizeof(listen_addr));
 
 	listen_addr.sin_family = AF_INET;
-	listen_addr.sin_port = htons(r->listen_port);
+	listen_addr.sin_port = htons(r->listen.port);
 
-	if (inet_pton(AF_INET, r->listen_host, &listen_addr.sin_addr) != 1) {
+	if (inet_pton(AF_INET, r->listen.host, &listen_addr.sin_addr) != 1) {
 		LOG_ERROR("invalid udp listen address",
-			"listen_host", _LOGV(r->listen_host)
+			"listen", _LOGV_ENDPOINT(&r->listen)
 		);
 		return -EINVAL;
 	}
@@ -494,10 +494,8 @@ int start_udp_route(
 
 	LOG_INFO("udp route started",
 		"line", _LOGV(r->line_no),
-		"listen_host", _LOGV(r->listen_host),
-		"listen_port", _LOGV(r->listen_port),
-		"upstream_host", _LOGV(r->upstream_host),
-		"upstream_port", _LOGV(r->upstream_port),
+		"listen", _LOGV_ENDPOINT(&r->listen),
+		"upstream", _LOGV_ENDPOINT(&r->upstream),
 		"options", _LOGV(opts[0] ? opts : "")
 	);
 
