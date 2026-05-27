@@ -55,10 +55,12 @@ jobs:
       - &package_unix
         name: Package artifact
         run: |
+          os="$(printf '%s' '${{ runner.os }}' | tr '[:upper:]' '[:lower:]')"
+          arch="$(printf '%s' '${{ runner.arch }}' | tr '[:upper:]' '[:lower:]')"
           mkdir -p dist/tinyproxy
           cp bin/tinyproxy dist/tinyproxy/
           cp tinyproxy.conf dist/tinyproxy/
-          tar -C dist -czf tinyproxy-${{ runner.os }}-${{ runner.arch }}.tar.gz tinyproxy
+          tar -C dist -czf tinyproxy-${os}-${arch}.tar.gz tinyproxy
 
       - &upload_unix
         name: Upload artifact
@@ -153,13 +155,13 @@ jobs:
           cp tinyproxy.conf dist/tinyproxy/
 
           powershell.exe -NoProfile -Command \
-            "Compress-Archive -Path dist/tinyproxy -DestinationPath tinyproxy-Windows-X64.zip -Force"
+            "Compress-Archive -Path dist/tinyproxy -DestinationPath tinyproxy-windows-x64.zip -Force"
 
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
-          name: tinyproxy-Windows-X64
-          path: tinyproxy-Windows-X64.zip
+          name: tinyproxy-windows-x64
+          path: tinyproxy-windows-x64.zip
           if-no-files-found: error
           retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
 
@@ -236,8 +238,8 @@ jobs:
 
           mkdir -p tmp/amd64 tmp/arm64
 
-          tar -xzf docker-artifacts/tinyproxy-Linux-X64.tar.gz -C tmp/amd64
-          tar -xzf docker-artifacts/tinyproxy-Linux-ARM64.tar.gz -C tmp/arm64
+          tar -xzf docker-artifacts/tinyproxy-linux-x64.tar.gz -C tmp/amd64
+          tar -xzf docker-artifacts/tinyproxy-linux-arm64.tar.gz -C tmp/arm64
 
           mkdir -p rootfs-amd64/usr/bin rootfs-amd64/etc
           mkdir -p rootfs-arm64/usr/bin rootfs-arm64/etc
