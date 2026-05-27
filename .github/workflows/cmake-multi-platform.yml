@@ -55,7 +55,7 @@ jobs:
 
       - &package_name
         name: Set package names
-        shell: bash
+        shell: sh
         run: |
           os="$(printf '%s' '${{ runner.os }}' | tr '[:upper:]' '[:lower:]')"
           arch="$(printf '%s' '${{ runner.arch }}' | tr '[:upper:]' '[:lower:]')"
@@ -64,7 +64,7 @@ jobs:
 
       - &package_unix
         name: Package artifact
-        shell: bash
+        shell: sh
         run: |
           mkdir -p dist/tinyproxy
           cp bin/tinyproxy dist/tinyproxy/
