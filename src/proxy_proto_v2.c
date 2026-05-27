@@ -1,5 +1,3 @@
-#include <event2/bufferevent.h>
-
 #include <errno.h>
 #include <stdint.h>
 #include <string.h>
@@ -125,36 +123,4 @@ int proxy_v2_build(
 	default:
 		return -EAFNOSUPPORT;
 	}
-}
-
-int proxy_v2_write_bufferevent(
-	struct bufferevent *bev,
-	const struct sockaddr *src,
-	socklen_t src_len,
-	const struct sockaddr *dst,
-	socklen_t dst_len,
-	int sock_type
-) {
-	unsigned char hdr[256];
-	size_t hdr_len = 0;
-
-	int rc = proxy_v2_build(
-		hdr,
-		sizeof(hdr),
-		src,
-		src_len,
-		dst,
-		dst_len,
-		sock_type,
-		&hdr_len
-	);
-	if (rc != 0) {
-		return rc;
-	}
-
-	if (bufferevent_write(bev, hdr, hdr_len) < 0) {
-		return -EIO;
-	}
-
-	return 0;
 }

@@ -323,14 +323,26 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 			return;
 		}
 
-		int rc = proxy_v2_write_bufferevent(
-			conn->upstream,
+		unsigned char hdr[256];
+		size_t hdr_len = 0;
+
+		int rc = proxy_v2_build(
+			hdr,
+			sizeof(hdr),
 			(const struct sockaddr *)&ac->peer_addr,
 			ac->peer_addr_len,
-			(struct sockaddr *)&local_addr,
+			(const struct sockaddr *)&local_addr,
 			local_len,
-			SOCK_STREAM
+			SOCK_STREAM,
+			&hdr_len
 		);
+
+		if (rc == 0) {
+			rc = bufferevent_write(conn->upstream, hdr, hdr_len);
+			if (rc < 0) {
+				rc = -EIO;
+			}
+		}
 
 		if (rc < 0) {
 			LOG_ERROR("failed to write PROXY v2 header", "err", _LOGV(strerror(-rc)));
