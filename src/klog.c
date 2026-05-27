@@ -59,28 +59,10 @@ static void print_quoted_value(const char *s)
 
 static void log_print_endpoint(FILE *out, const struct endpoint *ep)
 {
-	if (ep == NULL) {
-		fputs("<nil>", out);
-		return;
-	}
+	char buf[256];
 
-	switch (ep->kind) {
-	case ENDPOINT_INET:
-		fprintf(out, "%s:%u", ep->host, ep->port);
-		return;
-
-	case ENDPOINT_UNIX:
-		fprintf(out, "unix:%s", ep->path);
-		return;
-
-	case ENDPOINT_UNIX_DGRAM:
-		fprintf(out, "unix-dgram:%s", ep->path);
-		return;
-
-	default:
-		fputs("<unknown>", out);
-		return;
-	}
+	endpoint_to_string(ep, buf, sizeof(buf));
+	fputs(buf, out);
 }
 
 static void print_log_value(struct log_value value)

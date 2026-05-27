@@ -5,6 +5,7 @@ libevent2/
 __pycache__
 *.log
 *.swp
+.DS_Store
 
 # Prerequisites
 *.d

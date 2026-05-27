@@ -16,6 +16,7 @@
 #include "proxy_proto_v2.h"
 #include "route.h"
 #include "udp_route.h"
+#include "x_builtins.h"
 
 #define UDP_MAX_PACKET 65535
 
@@ -176,6 +177,111 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 	}
 }
 
+static const char *udp_client_addr_string(
+	const struct udp_client *c,
+	char *buf,
+	size_t buf_len
+) {
+	void *addr;
+	uint16_t port;
+
+	if (c == NULL || buf == NULL || buf_len == 0) {
+		return NULL;
+	}
+
+	switch (c->client_addr.ss_family) {
+	case AF_INET: {
+		const struct sockaddr_in *sin =
+			(const struct sockaddr_in *)&c->client_addr;
+
+		addr = (void *)&sin->sin_addr;
+		port = ntohs(sin->sin_port);
+
+		if (inet_ntop(AF_INET, addr, buf, buf_len) == NULL) {
+			return NULL;
+		}
+
+		break;
+	}
+
+	case AF_INET6: {
+		const struct sockaddr_in6 *sin6 =
+			(const struct sockaddr_in6 *)&c->client_addr;
+
+		addr = (void *)&sin6->sin6_addr;
+		port = ntohs(sin6->sin6_port);
+
+		if (inet_ntop(AF_INET6, addr, buf, buf_len) == NULL) {
+			return NULL;
+		}
+
+		break;
+	}
+
+	default:
+		if (snprintf(buf, buf_len, "unknown") < 0) {
+			return NULL;
+		}
+		return buf;
+	}
+
+	if (snprintf(buf + strlen(buf), buf_len - strlen(buf), ":%u", port) < 0) {
+		return NULL;
+	}
+
+	return buf;
+}
+
+static int start_udp_builtin(struct udp_client *c)
+{
+	struct x_builtin_request req;
+	struct x_builtin_response res;
+	char client_addr[128];
+	int rc;
+
+	if (c == NULL || c->ctx == NULL || c->ctx->route == NULL) {
+		return -EINVAL;
+	}
+
+	memset(&req, 0, sizeof(req));
+
+	req.builtin = c->ctx->route->upstream.builtin;
+	req.client_addr = udp_client_addr_string(c, client_addr, sizeof(client_addr));
+
+	rc = x_builtin_handle(&req, &res);
+	if (rc < 0) {
+		return rc;
+	}
+
+	switch (res.action) {
+	case X_BUILTIN_ACTION_CLOSE:
+		if (res.data_len == 0) {
+			return 0;
+		}
+
+		if (sendto(
+			    c->ctx->listen_fd,
+			    res.data,
+			    res.data_len,
+			    0,
+			    (const struct sockaddr *)&c->client_addr,
+			    c->client_addr_len) < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		return 0;
+
+	case X_BUILTIN_ACTION_DISCARD:
+		return 0;
+
+	case X_BUILTIN_ACTION_HANG:
+		return 0;
+
+	default:
+		return -EINVAL;
+	}
+}
+
 static int connect_udp_upstream(struct udp_client *c, const struct endpoint *upstream)
 {
 	if (upstream == NULL) {
@@ -183,6 +289,7 @@ static int connect_udp_upstream(struct udp_client *c, const struct endpoint *ups
 	}
 
 	switch (upstream->kind) {
+
 	case ENDPOINT_INET: {
 		struct sockaddr_in upstream_addr;
 
@@ -446,6 +553,27 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 			continue;
 		}
 
+		if (ctx->route->upstream.kind == ENDPOINT_BUILTIN) {
+			struct udp_client tmp;
+
+			memset(&tmp, 0, sizeof(tmp));
+			tmp.ctx = ctx;
+			tmp.fd = -1;
+			tmp.client_addr = client_addr;
+			tmp.client_addr_len = client_addr_len;
+			tmp.last_seen = time(NULL);
+
+			int rc = start_udp_builtin(&tmp);
+			if (rc < 0) {
+				LOG_ERROR("udp builtin failed",
+						"err", _LOGV(evutil_socket_error_to_string(-rc))
+						);
+				return;
+			}
+
+			continue;
+		}
+
 		struct udp_client *c = find_udp_client(ctx, &client_addr, client_addr_len);
 		if (c == NULL) {
 			c = create_udp_client(ctx, &client_addr, client_addr_len);
@@ -479,6 +607,7 @@ int start_udp_route(
 	}
 
 	if (r->upstream.kind != ENDPOINT_INET &&
+		r->upstream.kind != ENDPOINT_BUILTIN &&
 		r->upstream.kind != ENDPOINT_UNIX_DGRAM) {
 		LOG_ERROR("unsupported udp upstream endpoint",
 			"upstream", _LOGV_ENDPOINT(&r->upstream)

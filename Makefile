@@ -9,6 +9,8 @@ BIN := $(BIN_DIR)/tinyproxy$(EXEEXT)
 
 SRC := $(wildcard $(SRC_DIR)/*.c)
 
+CFLAGS += -ffile-prefix-map=$(SRC_DIR)/=
+
 all: $(BIN)
 
 $(BIN): $(SRC) $(LIBEVENT_DEPS)

@@ -213,6 +213,22 @@ static int parse_endpoint(const char *s, struct endpoint *ep)
 		ep->kind = ENDPOINT_UNIX;
 		strcpy(ep->path, path);
 		return 0;
+	} else if (strncmp(s, "builtin://", 10) == 0) {
+		const char *name = s + 10;
+		enum x_builtin_upstream builtin;
+
+		if (name[0] == '\0') {
+			return -1;
+		}
+
+		if (x_builtin_parse(name, &builtin) < 0) {
+			return -1;
+		}
+
+		ep->kind = ENDPOINT_BUILTIN;
+		ep->builtin = builtin;
+
+		return 0;
 	} else if (strncmp(s, "unix-dgram:", 11) == 0) {
 		path = s + 11;
 

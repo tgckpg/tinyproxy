@@ -62,6 +62,7 @@ $(OUT)/fuzz_tcp_route: \
 		$(SRC_DIR)/tcp_route.c \
 		$(SRC_DIR)/proxy_proto_v2.c \
 		$(SRC_DIR)/route.c \
+		$(SRC_DIR)/x_builtins.c \
 		$(SRC_DIR)/klog.c \
 		fuzz_tcp_route.c \
 		-o $@ \

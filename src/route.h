@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "x_builtins.h"
+
 struct event_base;
 
 #define ROUTE_HOST_MAX 256
@@ -28,6 +30,7 @@ enum endpoint_kind {
 	ENDPOINT_INET,
 	ENDPOINT_UNIX,
 	ENDPOINT_UNIX_DGRAM,
+	ENDPOINT_BUILTIN,
 };
 
 struct endpoint {
@@ -37,6 +40,8 @@ struct endpoint {
 	uint16_t port;
 
 	char path[108]; /* sockaddr_un sun_path limit on Linux */
+
+	enum x_builtin_upstream builtin;
 };
 
 struct route {
@@ -54,6 +59,7 @@ struct worker {
 	size_t id;
 };
 
+int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len);
 void route_options_str(const struct route_options *opts, char *buf, size_t buflen);
 
 #endif
