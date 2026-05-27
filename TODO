@@ -1,6 +1,0 @@
-## Core
-* pthread support
-
-## Forwarding
-* IPv6
-* unix socks (listen)

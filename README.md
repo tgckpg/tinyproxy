@@ -1,16 +1,13 @@
 # tinyproxy
 
-A tiny L4 proxy.
-
-The goal is not to become HAProxy, Envoy, nginx, or a general-purpose load balancer but to stay small and practical for simple inetd-style forwarding tasks.
+An L4 proxy designed to act as a tiny transparent shim.
 
 ## Rule of thumb
 
 1. Should feel like an inet utility.
 2. Be simple and effective.
-3. Be explicit and performant
+3. Be performant and explicit.
 4. Run in the foreground.
-5. Avoid protocol-specific features unless they are small and practical.
 
 ## Configuration
 
@@ -121,8 +118,6 @@ tinyproxy adds a Proxy Protocol v2 header so the upstream can recover:
 
 ## Non-goals
 
-tinyproxy is not trying to provide:
-
 - TLS termination
 - HTTP routing
 - retries
@@ -130,12 +125,22 @@ tinyproxy is not trying to provide:
 - service discovery
 - health checks
 - dynamic configuration reloads
-- QUIC awareness
-- full AWS NLB emulation
+- QUIC awareness (just forward 443 udp)
 - full HAProxy compatibility
 
 Use HAProxy, Envoy, nginx, Cilium, or a real load balancer if you need those.
 
 ## Development status
 
-This project is still experimental.
+This project is still work in progress. Basic funtinoality works. (See tests)
+
+### TODO
+These are the major features I want to implement before calling it done. (going into maintainance mode)
+
+* Core
+  * pthread support (planned for v0.2.x)
+* Forwarding
+  * IPv6 (planned for v0.2.x)
+  * unix socks (listen) (planned for v0.2.x)
+* Security
+  * fuzzing (planned for v0.1.x)
