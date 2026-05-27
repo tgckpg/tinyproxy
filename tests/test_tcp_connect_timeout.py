@@ -10,6 +10,7 @@ from .support import (
 )
 
 
+CONNECT_TIMEOUT_PROXY_PORT = PROXY_PORT + 20
 BLACKHOLE_HOST = "192.0.2.1"
 BLACKHOLE_PORT = 65000
 
@@ -35,7 +36,7 @@ async def test_tcp_connect_timeout_closes_client_connection() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
+		f"{LISTEN_HOST}:{CONNECT_TIMEOUT_PROXY_PORT} "
 		f"{BLACKHOLE_HOST}:{BLACKHOLE_PORT} "
 		f"tcp connect_timeout=1,idle_timeout=30\n"
 	)
@@ -44,10 +45,10 @@ async def test_tcp_connect_timeout_closes_client_connection() -> None:
 		proxy_bin=proxy_bin,
 		conf_text=conf_text,
 		listen_host=LISTEN_HOST,
-		listen_port=PROXY_PORT,
+		listen_port=CONNECT_TIMEOUT_PROXY_PORT,
 		proto="tcp",
 	):
-		reader, writer = await asyncio.open_connection(LISTEN_HOST, PROXY_PORT)
+		reader, writer = await asyncio.open_connection(LISTEN_HOST, CONNECT_TIMEOUT_PROXY_PORT)
 
 		try:
 			start = time.monotonic()
@@ -94,7 +95,7 @@ async def test_tcp_connect_timeout_does_not_replace_idle_timeout_after_connect()
 	from .support import BACKEND_PORT
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
+		f"{LISTEN_HOST}:{CONNECT_TIMEOUT_PROXY_PORT} "
 		f"{LISTEN_HOST}:{BACKEND_PORT} "
 		f"tcp connect_timeout=1,idle_timeout=2\n"
 	)
@@ -111,10 +112,10 @@ async def test_tcp_connect_timeout_does_not_replace_idle_timeout_after_connect()
 			proxy_bin=proxy_bin,
 			conf_text=conf_text,
 			listen_host=LISTEN_HOST,
-			listen_port=PROXY_PORT,
+			listen_port=CONNECT_TIMEOUT_PROXY_PORT,
 			proto="tcp",
 		):
-			reader, writer = await asyncio.open_connection(LISTEN_HOST, PROXY_PORT)
+			reader, writer = await asyncio.open_connection(LISTEN_HOST, CONNECT_TIMEOUT_PROXY_PORT)
 
 			try:
 				payload = b"connected path still works\n"

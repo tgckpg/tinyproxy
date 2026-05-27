@@ -124,6 +124,16 @@ static void set_idle_timeouts(conn_t *conn, const struct route *r)
 	bufferevent_set_timeouts(conn->upstream, &idle_timeout, &idle_timeout);
 }
 
+static int set_socket_keepalive(evutil_socket_t fd, const struct route *r)
+{
+	int v = r->opts.keep_alive ? 1 : 0;
+
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (const char *)&v, sizeof(v)) < 0) {
+		return -errno;
+	}
+
+	return 0;
+}
 
 static void event_cb(struct bufferevent *bev, short events, void *arg) {
 	conn_t *conn = arg;
@@ -177,6 +187,13 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 		return;
 	}
 
+	int rc = set_socket_keepalive(ac->fd, r);
+	if (rc < 0) {
+		LOG_WARN("failed to enable client TCP keepalive",
+			"err", _LOGV(strerror(-rc))
+		);
+	}
+
 	bufferevent_setwatermark(conn->client, EV_READ, 0, BEV_READ_HIGH_WATER);
 	bufferevent_setwatermark(conn->upstream, EV_READ, 0, BEV_READ_HIGH_WATER);
 
@@ -224,6 +241,19 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 		LOG_ERROR("upstream connect failed");
 		free_conn(conn);
 		return;
+	}
+
+	if (r->opts.keep_alive) {
+		evutil_socket_t upstream_fd = bufferevent_getfd(conn->upstream);
+
+		if (upstream_fd >= 0) {
+			int rc = set_socket_keepalive(upstream_fd, r);
+			if (rc < 0) {
+				LOG_WARN("failed to enable upstream TCP keepalive",
+					"err", _LOGV(strerror(-rc))
+				);
+			}
+		}
 	}
 
 	if (r->opts.proxy_v2) {

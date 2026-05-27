@@ -30,6 +30,7 @@ jobs:
             libevent-dev \
             libevent-static \
             python3 \
+            strace \
             haproxy
 
       - &build_static

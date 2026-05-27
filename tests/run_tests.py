@@ -13,6 +13,7 @@ from .support import (
 from . import test_tcp_basic
 from . import test_tcp_idle_timeout
 from . import test_tcp_connect_timeout
+from . import test_tcp_keep_alive
 from . import test_tcp_stress
 from . import test_tcp_backpressure
 from . import test_udp_basic
@@ -35,6 +36,7 @@ STANDALONE_TEST_MODULES = [
 	test_udp_proxy_v2,
 	test_tcp_backpressure,
 	test_tcp_idle_timeout,
+	test_tcp_keep_alive,
 	test_tcp_connect_timeout,
 	test_udp_idle_timeout,
 ]
