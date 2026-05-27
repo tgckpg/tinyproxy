@@ -8,6 +8,10 @@ on:
   pull_request:
     branches: ["main"]
 
+concurrency:
+  group: tinyproxy-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   ARTIFACT_RETENTION_DAYS: 30
 
@@ -219,7 +223,15 @@ jobs:
               --generate-notes
           fi
 
-          gh release upload "$tag" release-assets/* --clobber
+          for asset in release-assets/*; do
+            name="$(basename "$asset")"
+
+            echo "Deleting existing release asset if present: $name"
+            gh release delete-asset "$tag" "$name" -y >/dev/null 2>&1 || true
+
+            echo "Uploading release asset: $name"
+            gh release upload "$tag" "$asset"
+          done
 
   docker:
     name: Docker image
