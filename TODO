@@ -2,4 +2,5 @@
 * pthread support
 
 ## Forwarding
-* IPv6 <-> IPv4
+* IPv6
+* unix socks

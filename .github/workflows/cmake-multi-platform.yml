@@ -241,7 +241,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: docker-artifacts
-          pattern: tinyproxy-Linux-*
+          pattern: tinyproxy-linux-*
           merge-multiple: true
 
       - name: Prepare Docker rootfs
