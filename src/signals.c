@@ -1,4 +1,4 @@
-#include "signal.h"
+#include "signals.h"
 
 #include <signal.h>
 #include <string.h>

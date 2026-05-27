@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 #include "klog.h"
-#include "signal.h"
+#include "signals.h"
 #include "file_conf.h"
 #include "tcp_route.h"
 #include "udp_route.h"

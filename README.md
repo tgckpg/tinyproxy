@@ -142,5 +142,3 @@ These are the major features I want to implement before calling it done. (going 
 * Forwarding
   * IPv6 (planned for v0.2.x)
   * unix socks (listen) (planned for v0.2.x)
-* Security
-  * fuzzing (planned for v0.1.x)

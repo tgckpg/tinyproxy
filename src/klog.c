@@ -118,6 +118,10 @@ static void print_log_value(struct log_value value)
 
 void log_at(char sev, const char *file, int line, const char *msg, ...)
 {
+#ifdef FUZZ
+	return;
+#endif
+
 	struct timespec ts;
 	struct tm tm;
 	char tbuf[32];
