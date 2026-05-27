@@ -3,10 +3,11 @@ FROM alpine:3.23 AS build
 RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
 	apk add --update-cache build-base libevent-dev libevent-static
 
-RUN mkdir /src
-WORKDIR /src
+RUN mkdir /build
+WORKDIR /build
 
-COPY [ "*.c", "*.h", "*.conf", "Makefile", "/src" ]
+COPY [ "*.conf", "Makefile", "/build" ]
+COPY ./src /build/src
 
 RUN make all STATIC=1
 

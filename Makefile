@@ -7,18 +7,13 @@ STRIP ?= strip
 PKG_CONFIG ?= pkg-config
 
 PROJECT_ROOT := $(CURDIR)
+SRC_DIR := src
 BIN_DIR := $(CURDIR)/bin
 BUILD_DIR := $(PROJECT_ROOT)/build
 
-SRC := klog.c \
-       proxy_proto_v2.c \
-       signal.c \
-       route.c \
-       tcp_route.c \
-       udp_route.c \
-	   env.c \
-       file_conf.c \
-       tinyproxy.c
+BIN := $(BIN_DIR)/tinyproxy
+
+SRC := $(wildcard $(SRC_DIR)/*.c)
 
 EXEEXT :=
 WINDOWS_LDLIBS :=
