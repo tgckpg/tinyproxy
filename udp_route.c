@@ -6,8 +6,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/stat.h>
 
 #include "klog.h"
+#include "env.h"
 #include "file_conf.h"
 #include "compat_socket.h"
 #include "proxy_proto_v2.h"
@@ -23,6 +25,8 @@ struct udp_client {
 
 	evutil_socket_t fd;
 	struct event *ev;
+
+	char unix_local_path[108];
 
 	struct sockaddr_storage client_addr;
 	socklen_t client_addr_len;
@@ -75,6 +79,10 @@ static void free_udp_client(struct udp_client *c)
 
 	if (c->fd >= 0) {
 		evutil_closesocket(c->fd);
+	}
+
+	if (c->unix_local_path[0] != '\0') {
+		unlink(c->unix_local_path);
 	}
 
 	free(c);
@@ -167,6 +175,116 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 	}
 }
 
+static int connect_udp_upstream(struct udp_client *c, const struct endpoint *upstream)
+{
+	if (upstream == NULL) {
+		return -EINVAL;
+	}
+
+	switch (upstream->kind) {
+	case ENDPOINT_INET: {
+		struct sockaddr_in upstream_addr;
+
+		memset(&upstream_addr, 0, sizeof(upstream_addr));
+		upstream_addr.sin_family = AF_INET;
+		upstream_addr.sin_port = htons(upstream->port);
+
+		if (inet_pton(AF_INET, upstream->host, &upstream_addr.sin_addr) != 1) {
+			return -EINVAL;
+		}
+
+		c->fd = socket(AF_INET, SOCK_DGRAM, 0);
+		if (c->fd < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		if (connect(
+				c->fd,
+				(const struct sockaddr *)&upstream_addr,
+				sizeof(upstream_addr)
+			) < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		return 0;
+	}
+
+	case ENDPOINT_UNIX_DGRAM:
+#ifdef _WIN32
+		return -ENOTSUP;
+#else
+	{
+		struct sockaddr_un local_addr;
+		struct sockaddr_un upstream_addr;
+
+		if (upstream->path[0] == '\0') {
+			return -EINVAL;
+		}
+
+		if (strlen(upstream->path) >= sizeof(upstream_addr.sun_path)) {
+			return -ENAMETOOLONG;
+		}
+
+		c->fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+		if (c->fd < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		memset(&local_addr, 0, sizeof(local_addr));
+		local_addr.sun_family = AF_UNIX;
+
+		// UNIX_DGRAM sock for reply
+		const char *runtime_dir = tinyproxy_runtime_dir();
+
+		int n = snprintf(
+			c->unix_local_path,
+			sizeof(c->unix_local_path),
+			"%s/udp-%ld-%p.sock",
+			runtime_dir,
+			(long)getpid(),
+			(void *)c
+		);
+
+		if (n < 0 || (size_t)n >= sizeof(c->unix_local_path)) {
+			return -ENAMETOOLONG;
+		}
+
+		if (strlen(c->unix_local_path) >= sizeof(local_addr.sun_path)) {
+			return -ENAMETOOLONG;
+		}
+
+		unlink(c->unix_local_path);
+		strcpy(local_addr.sun_path, c->unix_local_path);
+
+		if (bind(
+				c->fd,
+				(const struct sockaddr *)&local_addr,
+				sizeof(local_addr)
+			) < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		memset(&upstream_addr, 0, sizeof(upstream_addr));
+		upstream_addr.sun_family = AF_UNIX;
+		strcpy(upstream_addr.sun_path, upstream->path);
+
+		if (connect(
+				c->fd,
+				(const struct sockaddr *)&upstream_addr,
+				sizeof(upstream_addr)
+			) < 0) {
+			return -EVUTIL_SOCKET_ERROR();
+		}
+
+		return 0;
+	}
+#endif
+
+	default:
+		return -ENOTSUP;
+	}
+}
+
 static struct udp_client *create_udp_client(
 	struct udp_route_ctx *ctx,
 	const struct sockaddr_storage *client_addr,
@@ -185,12 +303,11 @@ static struct udp_client *create_udp_client(
 	c->client_addr_len = client_addr_len;
 	c->last_seen = time(NULL);
 
-	c->fd = socket(AF_INET, SOCK_DGRAM, 0);
-	if (c->fd < 0) {
-		int err = EVUTIL_SOCKET_ERROR();
-
-		LOG_ERROR("udp upstream socket failed",
-			"err", _LOGV(evutil_socket_error_to_string(err))
+	int rc = connect_udp_upstream(c, &r->upstream);
+	if (rc < 0) {
+		LOG_ERROR("udp upstream connect failed",
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"err", _LOGV(evutil_socket_error_to_string(-rc))
 		);
 		free_udp_client(c);
 		return NULL;
@@ -198,34 +315,6 @@ static struct udp_client *create_udp_client(
 
 	if (evutil_make_socket_nonblocking(c->fd) < 0) {
 		LOG_ERROR("evutil_make_socket_nonblocking failed");
-		free_udp_client(c);
-		return NULL;
-	}
-
-	struct sockaddr_in upstream_addr;
-	memset(&upstream_addr, 0, sizeof(upstream_addr));
-
-	upstream_addr.sin_family = AF_INET;
-	upstream_addr.sin_port = htons(r->upstream.port);
-
-	if (inet_pton(AF_INET, r->upstream.host, &upstream_addr.sin_addr) != 1) {
-		LOG_ERROR("invalid udp upstream address",
-			"upstream", _LOGV_ENDPOINT(&r->upstream)
-		);
-		free_udp_client(c);
-		return NULL;
-	}
-
-	if (connect(
-			c->fd,
-			(const struct sockaddr *)&upstream_addr,
-			sizeof(upstream_addr)
-		) < 0) {
-		int err = EVUTIL_SOCKET_ERROR();
-
-		LOG_ERROR("udp upstream connect failed",
-			"err", _LOGV(evutil_socket_error_to_string(err))
-		);
 		free_udp_client(c);
 		return NULL;
 	}
@@ -346,7 +435,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 				return;
 			}
 
-			LOG_ERROR("udp upstream recv failed",
+			LOG_ERROR("udp listen recv failed",
 				"err", _LOGV(evutil_socket_error_to_string(err))
 			);
 			return;
@@ -381,6 +470,33 @@ int start_udp_route(
 	const struct route *r,
 	struct udp_route_ctx **out
 ) {
+	if (r->listen.kind != ENDPOINT_INET) {
+		LOG_ERROR("unsupported udp listen endpoint",
+			"listen", _LOGV_ENDPOINT(&r->listen)
+		);
+		return -ENOTSUP;
+	}
+
+	if (r->upstream.kind != ENDPOINT_INET &&
+		r->upstream.kind != ENDPOINT_UNIX_DGRAM) {
+		LOG_ERROR("unsupported udp upstream endpoint",
+			"upstream", _LOGV_ENDPOINT(&r->upstream)
+		);
+		return -ENOTSUP;
+	}
+
+	if (r->upstream.kind == ENDPOINT_UNIX_DGRAM) {
+		const char *runtime_dir = tinyproxy_runtime_dir();
+
+		if (mkdir(runtime_dir, 0755) < 0 && errno != EEXIST) {
+			LOG_ERROR("failed to create unix-dgram runtime dir",
+				"dir", _LOGV(runtime_dir),
+				"err", _LOGV(strerror(errno))
+			);
+			return -errno;
+		}
+	}
+
 	struct sockaddr_in listen_addr;
 	memset(&listen_addr, 0, sizeof(listen_addr));
 

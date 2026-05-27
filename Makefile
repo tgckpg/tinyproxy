@@ -16,6 +16,7 @@ SRC := klog.c \
        route.c \
        tcp_route.c \
        udp_route.c \
+	   env.c \
        file_conf.c \
        tinyproxy.c
 

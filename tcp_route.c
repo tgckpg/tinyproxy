@@ -9,10 +9,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef _WIN32
-#include <sys/un.h>
-#endif
-
 #include "klog.h"
 #include "file_conf.h"
 #include "compat_socket.h"
@@ -175,7 +171,7 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 	}
 
 	switch (ep->kind) {
-	case ENDPOINT_TCP: {
+	case ENDPOINT_INET: {
 		struct sockaddr_in addr;
 
 		memset(&addr, 0, sizeof(addr));
@@ -288,7 +284,7 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 		return;
 	}
 
-	if (r->opts.keep_alive && r->upstream.kind == ENDPOINT_TCP) {
+	if (r->opts.keep_alive && r->upstream.kind == ENDPOINT_INET) {
 		evutil_socket_t upstream_fd = bufferevent_getfd(conn->upstream);
 
 		if (upstream_fd >= 0) {

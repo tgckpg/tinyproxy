@@ -213,9 +213,23 @@ static int parse_endpoint(const char *s, struct endpoint *ep)
 		ep->kind = ENDPOINT_UNIX;
 		strcpy(ep->path, path);
 		return 0;
+	} else if (strncmp(s, "unix-dgram:", 11) == 0) {
+		path = s + 11;
+
+		if (path[0] == '\0') {
+			return -1;
+		}
+
+		if (strlen(path) >= sizeof(ep->path)) {
+			return -1;
+		}
+
+		ep->kind = ENDPOINT_UNIX_DGRAM;
+		strcpy(ep->path, path);
+		return 0;
 	}
 
-	ep->kind = ENDPOINT_TCP;
+	ep->kind = ENDPOINT_INET;
 
 	if (split_host_port(s, ep->host, sizeof(ep->host), &ep->port) != 0) {
 		return -1;

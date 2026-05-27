@@ -65,12 +65,16 @@ static void log_print_endpoint(FILE *out, const struct endpoint *ep)
 	}
 
 	switch (ep->kind) {
-	case ENDPOINT_TCP:
+	case ENDPOINT_INET:
 		fprintf(out, "%s:%u", ep->host, ep->port);
 		return;
 
 	case ENDPOINT_UNIX:
 		fprintf(out, "unix:%s", ep->path);
+		return;
+
+	case ENDPOINT_UNIX_DGRAM:
+		fprintf(out, "unix-dgram:%s", ep->path);
 		return;
 
 	default:

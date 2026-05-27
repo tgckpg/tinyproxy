@@ -25,8 +25,9 @@ struct route_options {
 };
 
 enum endpoint_kind {
-	ENDPOINT_TCP,
+	ENDPOINT_INET,
 	ENDPOINT_UNIX,
+	ENDPOINT_UNIX_DGRAM,
 };
 
 struct endpoint {
