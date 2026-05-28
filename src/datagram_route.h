@@ -8,7 +8,7 @@ struct event;
 struct event_base;
 struct worker;
 struct route;
-struct udp_client;
+struct datagram_client;
 
 struct datagram_route_ctx {
 	struct event_base *base;
@@ -21,7 +21,7 @@ struct datagram_route_ctx {
 	struct sockaddr_storage local_addr;
 	socklen_t local_addr_len;
 
-	struct udp_client *clients;
+	struct datagram_client *clients;
 };
 
 int start_datagram_route(struct worker *w, const struct route *r,

@@ -1,0 +1,356 @@
+#include <event2/buffer.h>
+#include <event2/util.h>
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "klog.h"
+#include "worker.h"
+#include "route.h"
+#include "stream_conn.h"
+#include "stream_file.h"
+#include "stream_builtin.h"
+#include "proxy_proto_v2.h"
+
+void free_conn(conn_t *conn) {
+	if (conn == NULL) {
+		return;
+	}
+
+	if (conn->client != NULL) {
+		bufferevent_free(conn->client);
+	}
+
+	if (conn->upstream != NULL) {
+		bufferevent_free(conn->upstream);
+	}
+
+	free(conn);
+}
+
+static void set_connect_timeout(conn_t *conn, const struct route *r)
+{
+	struct timeval connect_timeout = {
+		.tv_sec = r->opts.connect_timeout_sec,
+		.tv_usec = 0,
+	};
+
+	bufferevent_set_timeouts(conn->upstream, NULL, &connect_timeout);
+}
+
+static void set_idle_timeouts(conn_t *conn, const struct route *r)
+{
+	struct timeval idle_timeout = {
+		.tv_sec = r->opts.idle_timeout_sec,
+		.tv_usec = 0,
+	};
+
+	bufferevent_set_timeouts(conn->client, &idle_timeout, &idle_timeout);
+	bufferevent_set_timeouts(conn->upstream, &idle_timeout, &idle_timeout);
+}
+
+void set_client_idle_timeout(conn_t *conn, const struct route *r)
+{
+	struct timeval idle_timeout = {
+		.tv_sec = r->opts.idle_timeout_sec,
+		.tv_usec = 0,
+	};
+
+	bufferevent_set_timeouts(conn->client, &idle_timeout, &idle_timeout);
+}
+
+static int set_socket_keepalive(evutil_socket_t fd, const struct route *r)
+{
+	int v = r->opts.keep_alive ? 1 : 0;
+
+	if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, (const char *)&v, sizeof(v)) < 0) {
+		return -errno;
+	}
+
+	return 0;
+}
+
+void event_cb(struct bufferevent *bev, short events, void *arg) {
+	conn_t *conn = arg;
+
+	if (events & BEV_EVENT_CONNECTED) {
+		set_idle_timeouts(conn, conn->route);
+
+		bufferevent_enable(conn->client, EV_READ | EV_WRITE);
+		bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
+		return;
+	}
+
+	if (events & BEV_EVENT_TIMEOUT) {
+		LOG_WARN("connection timed out");
+		free_conn(conn);
+		return;
+	}
+
+	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
+		if (events & BEV_EVENT_ERROR) {
+			int err = EVUTIL_SOCKET_ERROR();
+			LOG_ERROR("connection error",
+				"err", _LOGV(evutil_socket_error_to_string(err))
+			);
+		}
+
+		free_conn(conn);
+	}
+
+	(void)bev;
+}
+
+static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
+{
+	if (ep == NULL) {
+		return -EINVAL;
+	}
+
+	switch (ep->kind) {
+	case ENDPOINT_INET: {
+		struct sockaddr_in addr;
+
+		memset(&addr, 0, sizeof(addr));
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(ep->port);
+
+		if (inet_pton(AF_INET, ep->host, &addr.sin_addr) != 1) {
+			return -EINVAL;
+		}
+
+		if (bufferevent_socket_connect(
+			    bev,
+			    (struct sockaddr *)&addr,
+			    sizeof(addr)) < 0) {
+			return -errno;
+		}
+
+		return 0;
+	}
+
+	case ENDPOINT_UNIX:
+#ifdef _WIN32
+		return -ENOTSUP;
+#else
+	{
+		struct sockaddr_un addr;
+
+		memset(&addr, 0, sizeof(addr));
+		addr.sun_family = AF_UNIX;
+
+		if (ep->path[0] == '\0') {
+			return -EINVAL;
+		}
+
+		if (strlen(ep->path) >= sizeof(addr.sun_path)) {
+			return -ENAMETOOLONG;
+		}
+
+		strcpy(addr.sun_path, ep->path);
+
+		if (bufferevent_socket_connect(
+			    bev,
+			    (struct sockaddr *)&addr,
+			    sizeof(addr)) < 0) {
+			return -errno;
+		}
+
+		return 0;
+	}
+#endif
+
+	default:
+		return -ENOTSUP;
+	}
+}
+
+static void pipe_read_cb(struct bufferevent *src, void *arg)
+{
+	conn_t *conn = arg;
+	struct bufferevent *dst;
+
+	if (src == conn->client) {
+		dst = conn->upstream;
+	} else if (src == conn->upstream) {
+		dst = conn->client;
+	} else {
+		return;
+	}
+
+	struct evbuffer *input = bufferevent_get_input(src);
+	struct evbuffer *output = bufferevent_get_output(dst);
+
+	evbuffer_add_buffer(output, input);
+
+	if (evbuffer_get_length(output) >= BEV_READ_HIGH_WATER) {
+		bufferevent_disable(src, EV_READ);
+	}
+}
+
+static void pipe_write_cb(struct bufferevent *dst, void *arg)
+{
+	conn_t *conn = arg;
+	struct bufferevent *src;
+
+	if (dst == conn->client) {
+		src = conn->upstream;
+	} else if (dst == conn->upstream) {
+		src = conn->client;
+	} else {
+		return;
+	}
+
+	struct evbuffer *output = bufferevent_get_output(dst);
+
+	if (evbuffer_get_length(output) < BEV_WRITE_RESUME_WATER) {
+		bufferevent_enable(src, EV_READ);
+	}
+}
+
+
+static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
+	conn_t *conn = calloc(1, sizeof(*conn));
+	if (conn == NULL) {
+		evutil_closesocket(ac->fd);
+		return;
+	}
+
+	const struct route *r = ac->route;
+
+	conn->owner = w;
+	conn->route = r;
+
+	conn->peer_addr = ac->peer_addr;
+	conn->peer_addr_len = ac->peer_addr_len;
+
+	conn->client = bufferevent_socket_new(w->base, ac->fd, BEV_OPT_CLOSE_ON_FREE);
+	if (conn->client == NULL) {
+		free(conn);
+		evutil_closesocket(ac->fd);
+		return;
+	}
+
+	if (ac->route->upstream.kind == ENDPOINT_BUILTIN) {
+		start_stream_builtin(conn);
+		return;
+	}
+
+	if (ac->route->upstream.kind == ENDPOINT_FILE) {
+		start_stream_file(conn);
+		return;
+	}
+
+	conn->upstream = bufferevent_socket_new(w->base, -1, BEV_OPT_CLOSE_ON_FREE);
+	if (conn->upstream == NULL) {
+		free_conn(conn);
+		return;
+	}
+
+	int rc = set_socket_keepalive(ac->fd, r);
+	if (rc < 0) {
+		LOG_WARN("failed to enable client TCP keepalive",
+			"err", _LOGV(strerror(-rc))
+		);
+	}
+
+	bufferevent_setwatermark(conn->client, EV_READ, 0, BEV_READ_HIGH_WATER);
+	bufferevent_setwatermark(conn->upstream, EV_READ, 0, BEV_READ_HIGH_WATER);
+
+	bufferevent_setcb(conn->client, pipe_read_cb, pipe_write_cb, event_cb, conn);
+	bufferevent_setcb(conn->upstream, pipe_read_cb, pipe_write_cb, event_cb, conn);
+
+	/*
+	 * Do not read from the client yet.
+	 *
+	 * Otherwise client bytes may be copied into the upstream output buffer
+	 * before the PROXY v2 header is queued.
+	 */
+	bufferevent_disable(conn->client, EV_READ);
+
+	set_connect_timeout(conn, r);
+
+	rc = connect_upstream(conn->upstream, &r->upstream);
+	if (rc < 0) {
+		LOG_ERROR("upstream connect failed",
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"err", _LOGV(strerror(-rc))
+		);
+		free_conn(conn);
+		return;
+	}
+
+	if (r->opts.keep_alive && r->upstream.kind == ENDPOINT_INET) {
+		evutil_socket_t upstream_fd = bufferevent_getfd(conn->upstream);
+
+		if (upstream_fd >= 0) {
+			int rc = set_socket_keepalive(upstream_fd, r);
+			if (rc < 0) {
+				LOG_WARN("failed to enable upstream TCP keepalive",
+					"upstream", _LOGV_ENDPOINT(&r->upstream),
+					"err", _LOGV(strerror(-rc))
+				);
+			}
+		}
+	}
+
+	if (r->opts.proxy_v2) {
+		struct sockaddr_in local_addr;
+		socklen_t local_len = sizeof(local_addr);
+
+		memset(&local_addr, 0, sizeof(local_addr));
+
+		if (getsockname(ac->fd, (struct sockaddr *)&local_addr, &local_len) < 0) {
+			perror("getsockname");
+			free_conn(conn);
+			return;
+		}
+
+		if (ac->peer_addr_len <= 0) {
+			LOG_ERROR("invalid client address");
+			free_conn(conn);
+			return;
+		}
+
+		if (ac->peer_addr.ss_family != AF_INET ||
+			local_addr.sin_family != AF_INET) {
+			LOG_ERROR("PROXY v2 currently only supports IPv4 TCP");
+			free_conn(conn);
+			return;
+		}
+
+		unsigned char hdr[256];
+		size_t hdr_len = 0;
+
+		int rc = proxy_v2_build(
+			hdr,
+			sizeof(hdr),
+			(const struct sockaddr *)&ac->peer_addr,
+			ac->peer_addr_len,
+			(const struct sockaddr *)&local_addr,
+			local_len,
+			SOCK_STREAM,
+			&hdr_len
+		);
+
+		if (rc == 0) {
+			rc = bufferevent_write(conn->upstream, hdr, hdr_len);
+			if (rc < 0) {
+				rc = -EIO;
+			}
+		}
+
+		if (rc < 0) {
+			LOG_ERROR("failed to write PROXY v2 header", "err", _LOGV(strerror(-rc)));
+			free_conn(conn);
+			return;
+		}
+	}
+
+	bufferevent_enable(conn->client, EV_READ | EV_WRITE);
+	bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
+}
+
+void dispatch_client_fd(struct worker *w, struct accepted_client *ac) {
+	worker_adopt_client_fd(w, ac);
+}

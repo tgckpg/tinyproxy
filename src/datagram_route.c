@@ -23,7 +23,7 @@
 
 struct datagram_route_ctx;
 
-struct udp_client {
+struct datagram_client {
 	struct datagram_route_ctx *ctx;
 
 	evutil_socket_t fd;
@@ -36,7 +36,7 @@ struct udp_client {
 
 	time_t last_seen;
 
-	struct udp_client *next;
+	struct datagram_client *next;
 };
 
 static int sockaddr_equal(
@@ -56,7 +56,7 @@ static int sockaddr_equal(
 	return memcmp(a, b, (size_t)a_len) == 0;
 }
 
-static void free_udp_client(struct udp_client *c)
+static void free_datagram_client(struct datagram_client *c)
 {
 	if (c == NULL) {
 		return;
@@ -77,13 +77,13 @@ static void free_udp_client(struct udp_client *c)
 	free(c);
 }
 
-static void cleanup_idle_udp_clients(struct datagram_route_ctx *ctx)
+static void cleanup_idle_datagram_clients(struct datagram_route_ctx *ctx)
 {
 	time_t now = time(NULL);
-	struct udp_client **pp = &ctx->clients;
+	struct datagram_client **pp = &ctx->clients;
 
 	while (*pp != NULL) {
-		struct udp_client *c = *pp;
+		struct datagram_client *c = *pp;
 
 		if (now - c->last_seen <= ctx->route->opts.idle_timeout_sec) {
 			pp = &c->next;
@@ -98,16 +98,16 @@ static void cleanup_idle_udp_clients(struct datagram_route_ctx *ctx)
 			"client_len", _LOGV(c->client_addr_len)
 		);
 
-		free_udp_client(c);
+		free_datagram_client(c);
 	}
 }
 
-static struct udp_client *find_udp_client(
+static struct datagram_client *find_datagram_client(
 	struct datagram_route_ctx *ctx,
 	const struct sockaddr_storage *addr,
 	socklen_t addr_len
 ) {
-	for (struct udp_client *c = ctx->clients; c != NULL; c = c->next) {
+	for (struct datagram_client *c = ctx->clients; c != NULL; c = c->next) {
 		if (sockaddr_equal(&c->client_addr, c->client_addr_len, addr, addr_len)) {
 			return c;
 		}
@@ -120,7 +120,7 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 {
 	(void)events;
 
-	struct udp_client *c = arg;
+	struct datagram_client *c = arg;
 	struct datagram_route_ctx *ctx = c->ctx;
 
 	unsigned char buf[UDP_MAX_PACKET];
@@ -164,8 +164,8 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 	}
 }
 
-static const char *udp_client_addr_string(
-	const struct udp_client *c,
+static const char *datagram_client_addr_string(
+	const struct datagram_client *c,
 	char *buf,
 	size_t buf_len
 ) {
@@ -219,7 +219,7 @@ static const char *udp_client_addr_string(
 	return buf;
 }
 
-static int start_udp_builtin(struct udp_client *c)
+static int start_datagram_builtin(struct datagram_client *c)
 {
 	struct x_builtin_request req;
 	struct x_builtin_response res;
@@ -233,7 +233,7 @@ static int start_udp_builtin(struct udp_client *c)
 	memset(&req, 0, sizeof(req));
 
 	req.builtin = c->ctx->route->upstream.builtin;
-	req.client_addr = udp_client_addr_string(c, client_addr, sizeof(client_addr));
+	req.client_addr = datagram_client_addr_string(c, client_addr, sizeof(client_addr));
 
 	rc = x_builtin_handle(&req, &res);
 	if (rc < 0) {
@@ -269,7 +269,7 @@ static int start_udp_builtin(struct udp_client *c)
 	}
 }
 
-static int connect_udp_upstream(struct udp_client *c, const struct endpoint *upstream)
+static int connect_datagram_upstream(struct datagram_client *c, const struct endpoint *upstream)
 {
 	if (upstream == NULL) {
 		return -EINVAL;
@@ -380,14 +380,14 @@ static int connect_udp_upstream(struct udp_client *c, const struct endpoint *ups
 	}
 }
 
-static struct udp_client *create_udp_client(
+static struct datagram_client *create_datagram_client(
 	struct datagram_route_ctx *ctx,
 	const struct sockaddr_storage *client_addr,
 	socklen_t client_addr_len
 ) {
 	const struct route *r = ctx->route;
 
-	struct udp_client *c = calloc(1, sizeof(*c));
+	struct datagram_client *c = calloc(1, sizeof(*c));
 	if (c == NULL) {
 		return NULL;
 	}
@@ -398,32 +398,32 @@ static struct udp_client *create_udp_client(
 	c->client_addr_len = client_addr_len;
 	c->last_seen = time(NULL);
 
-	int rc = connect_udp_upstream(c, &r->upstream);
+	int rc = connect_datagram_upstream(c, &r->upstream);
 	if (rc < 0) {
 		LOG_ERROR("udp upstream connect failed",
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"err", _LOGV(evutil_socket_error_to_string(-rc))
 		);
-		free_udp_client(c);
+		free_datagram_client(c);
 		return NULL;
 	}
 
 	if (evutil_make_socket_nonblocking(c->fd) < 0) {
 		LOG_ERROR("evutil_make_socket_nonblocking failed");
-		free_udp_client(c);
+		free_datagram_client(c);
 		return NULL;
 	}
 
 	c->ev = event_new(ctx->base, c->fd, EV_READ | EV_PERSIST, upstream_read_cb, c);
 	if (c->ev == NULL) {
 		LOG_ERROR("event_new failed for udp upstream");
-		free_udp_client(c);
+		free_datagram_client(c);
 		return NULL;
 	}
 
 	if (event_add(c->ev, NULL) < 0) {
 		LOG_ERROR("event_add failed for udp upstream");
-		free_udp_client(c);
+		free_datagram_client(c);
 		return NULL;
 	}
 
@@ -438,8 +438,8 @@ static struct udp_client *create_udp_client(
 	return c;
 }
 
-static int send_udp_payload_to_upstream(
-	struct udp_client *c,
+static int send_datagram_payload_to_upstream(
+	struct datagram_client *c,
 	const unsigned char *payload,
 	size_t payload_len
 ) {
@@ -504,7 +504,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 
 	struct datagram_route_ctx *ctx = arg;
 
-	cleanup_idle_udp_clients(ctx);
+	cleanup_idle_datagram_clients(ctx);
 
 	for (;;) {
 		unsigned char buf[UDP_MAX_PACKET];
@@ -541,7 +541,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 		}
 
 		if (ctx->route->upstream.kind == ENDPOINT_BUILTIN) {
-			struct udp_client tmp;
+			struct datagram_client tmp;
 
 			memset(&tmp, 0, sizeof(tmp));
 			tmp.ctx = ctx;
@@ -550,7 +550,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 			tmp.client_addr_len = client_addr_len;
 			tmp.last_seen = time(NULL);
 
-			int rc = start_udp_builtin(&tmp);
+			int rc = start_datagram_builtin(&tmp);
 			if (rc < 0) {
 				LOG_ERROR("udp builtin failed",
 						"err", _LOGV(evutil_socket_error_to_string(-rc))
@@ -561,9 +561,9 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 			continue;
 		}
 
-		struct udp_client *c = find_udp_client(ctx, &client_addr, client_addr_len);
+		struct datagram_client *c = find_datagram_client(ctx, &client_addr, client_addr_len);
 		if (c == NULL) {
-			c = create_udp_client(ctx, &client_addr, client_addr_len);
+			c = create_datagram_client(ctx, &client_addr, client_addr_len);
 			if (c == NULL) {
 				return;
 			}
@@ -571,7 +571,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 
 		c->last_seen = time(NULL);
 
-		int rc = send_udp_payload_to_upstream(c, buf, (size_t)n);
+		int rc = send_datagram_payload_to_upstream(c, buf, (size_t)n);
 		if (rc < 0) {
 			LOG_ERROR("udp send to upstream failed",
 				"err", _LOGV(evutil_socket_error_to_string(-rc))
@@ -584,15 +584,6 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 {
 	const struct route *r = ctx->route;
-
-	if (r->upstream.kind != ENDPOINT_INET &&
-		r->upstream.kind != ENDPOINT_BUILTIN &&
-		r->upstream.kind != ENDPOINT_UNIX_DGRAM) {
-		LOG_ERROR("unsupported datagram upstream endpoint",
-			"upstream", _LOGV_ENDPOINT(&r->upstream)
-		);
-		return -ENOTSUP;
-	}
 
 	if (r->upstream.kind == ENDPOINT_UNIX_DGRAM) {
 		const char *runtime_dir = tinyproxy_runtime_dir();
@@ -608,6 +599,124 @@ static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 
 	return 0;
 }
+
+#ifndef _WIN32
+static int bind_unix_datagram_listener(struct datagram_route_ctx *ctx)
+{
+	const struct route *r = ctx->route;
+	const char *path = r->listen.path;
+	struct sockaddr_un listen_addr;
+
+	if (path[0] == '\0') {
+		LOG_ERROR("empty unix datagram listen path",
+			"line", _LOGV(r->line_no),
+			"listen", _LOGV_ENDPOINT(&r->listen));
+		return -EINVAL;
+	}
+
+	if (strlen(path) >= sizeof(listen_addr.sun_path)) {
+		LOG_ERROR("unix datagram listen path too long",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path));
+		return -ENAMETOOLONG;
+	}
+
+	memset(&listen_addr, 0, sizeof(listen_addr));
+	listen_addr.sun_family = AF_UNIX;
+	memcpy(listen_addr.sun_path, path, strlen(path) + 1);
+
+	if (unlink(path) < 0 && errno != ENOENT) {
+		LOG_ERROR("failed to remove existing unix datagram listener socket",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(errno)));
+		return -errno;
+	}
+
+	ctx->listen_fd = socket(AF_UNIX, SOCK_DGRAM, 0);
+	if (ctx->listen_fd < 0) {
+		int err = errno;
+
+		LOG_ERROR("unix datagram listen socket failed",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(err)));
+		return -err;
+	}
+
+	evutil_make_socket_closeonexec(ctx->listen_fd);
+
+	if (evutil_make_socket_nonblocking(ctx->listen_fd) < 0) {
+		int err = errno;
+
+		LOG_ERROR("evutil_make_socket_nonblocking failed for unix datagram listener",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(err)));
+		return err ? -err : -EINVAL;
+	}
+
+	if (bind(
+			ctx->listen_fd,
+			(const struct sockaddr *)&listen_addr,
+			sizeof(listen_addr)
+		) < 0) {
+		int err = errno;
+
+		LOG_ERROR("unix datagram bind failed",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(err)));
+		return -err;
+	}
+
+	ctx->local_addr_len = sizeof(ctx->local_addr);
+	memset(&ctx->local_addr, 0, sizeof(ctx->local_addr));
+
+	if (getsockname(
+			ctx->listen_fd,
+			(struct sockaddr *)&ctx->local_addr,
+			&ctx->local_addr_len
+		) < 0) {
+		int err = errno;
+
+		LOG_ERROR("unix datagram getsockname failed",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(err)));
+		return err ? -err : -EINVAL;
+	}
+
+	ctx->listen_ev = event_new(
+		ctx->base,
+		ctx->listen_fd,
+		EV_READ | EV_PERSIST,
+		listen_read_cb,
+		ctx
+	);
+	if (ctx->listen_ev == NULL) {
+		LOG_ERROR("event_new failed for unix datagram listener",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path));
+		return -ENOMEM;
+	}
+
+	if (event_add(ctx->listen_ev, NULL) < 0) {
+		LOG_ERROR("event_add failed for unix datagram listener",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path));
+		return -EINVAL;
+	}
+
+	return 0;
+}
+#else
+static int bind_unix_datagram_listener(struct datagram_route_ctx *ctx)
+{
+	(void)ctx;
+	return -ENOTSUP;
+}
+#endif
 
 static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 {
@@ -701,6 +810,23 @@ static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 	return 0;
 }
 
+static int bind_datagram_listener(struct datagram_route_ctx *ctx)
+{
+	switch (ctx->route->listen.kind) {
+	case ENDPOINT_INET:
+		return bind_udp_datagram_listener(ctx);
+
+	case ENDPOINT_UNIX_DGRAM:
+		return bind_unix_datagram_listener(ctx);
+
+	default:
+		LOG_ERROR("datagram listen protocol not implemented yet",
+			"line", _LOGV(ctx->route->line_no),
+			"listen", _LOGV_ENDPOINT(&ctx->route->listen));
+		return -ENOTSUP;
+	}
+}
+
 int start_datagram_route(
 	struct worker *w,
 	const struct route *r,
@@ -726,19 +852,7 @@ int start_datagram_route(
 		return rc;
 	}
 
-	switch (r->listen.kind) {
-	case ENDPOINT_INET:
-		rc = bind_udp_datagram_listener(ctx);
-		break;
-
-	default:
-		LOG_ERROR("unsupported datagram listen endpoint",
-			"listen", _LOGV_ENDPOINT(&r->listen)
-		);
-		rc = -ENOTSUP;
-		break;
-	}
-
+	rc = bind_datagram_listener(ctx);
 	if (rc != 0) {
 		stop_datagram_route(ctx);
 		return rc;
@@ -756,6 +870,54 @@ int start_datagram_route(
 	return 0;
 }
 
+#ifndef _WIN32
+static void stop_unix_datagram_route(struct datagram_route_ctx *ctx)
+{
+	const struct route *r;
+	const char *path;
+	struct stat st;
+
+	if (ctx == NULL || ctx->route == NULL) {
+		return;
+	}
+
+	r = ctx->route;
+
+	if (r->listen.kind != ENDPOINT_UNIX_DGRAM) {
+		return;
+	}
+
+	path = r->listen.path;
+	if (path[0] == '\0') {
+		return;
+	}
+
+	if (lstat(path, &st) < 0) {
+		if (errno != ENOENT) {
+			LOG_WARN("failed to inspect unix datagram listener socket",
+				"line", _LOGV(r->line_no),
+				"path", _LOGV(path),
+				"err", _LOGV(strerror(errno)));
+		}
+		return;
+	}
+
+	if (!S_ISSOCK(st.st_mode)) {
+		LOG_WARN("not removing unix datagram listener path because it is not a socket",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path));
+		return;
+	}
+
+	if (unlink(path) < 0) {
+		LOG_WARN("failed to remove unix datagram listener socket",
+			"line", _LOGV(r->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(errno)));
+	}
+}
+#endif
+
 void stop_datagram_route(struct datagram_route_ctx *ctx)
 {
 	if (ctx == NULL) {
@@ -763,16 +925,20 @@ void stop_datagram_route(struct datagram_route_ctx *ctx)
 	}
 
 	while (ctx->clients != NULL) {
-		struct udp_client *c = ctx->clients;
+		struct datagram_client *c = ctx->clients;
 		ctx->clients = c->next;
 		c->next = NULL;
-		free_udp_client(c);
+		free_datagram_client(c);
 	}
 
 	if (ctx->listen_ev != NULL) {
 		event_free(ctx->listen_ev);
 		ctx->listen_ev = NULL;
 	}
+
+#ifndef _WIN32
+	stop_unix_datagram_route(ctx);
+#endif
 
 	if (ctx->listen_fd >= 0) {
 		evutil_closesocket(ctx->listen_fd);

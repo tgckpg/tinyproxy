@@ -60,5 +60,5 @@ IGNORE_RE="$(printf '%s\n' "$IGNORE" \
 	| sed '/^[[:space:]]*$/d' \
 	| paste -sd '|' -)"
 
-cflow --brief --main="$MAIN" src/*.c |
-	grep -Ev "^[[:space:]]*(${IGNORE_RE})\\("
+cflow --brief -n --main="$MAIN" src/*.c |
+	grep -Ev "^[[:space:]]+[[:digit:]]+[[:space:]]*(${IGNORE_RE})\\("

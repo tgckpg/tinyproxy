@@ -11,6 +11,9 @@
 #define ROUTE_DEFAULT_IDLE_TIMEOUT_SEC 60
 #define ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC 5
 
+#define BEV_READ_HIGH_WATER (256 * 1024)
+#define BEV_WRITE_RESUME_WATER (128 * 1024)
+
 struct route_options {
 	bool proxy_v2;
 	bool keep_alive;
