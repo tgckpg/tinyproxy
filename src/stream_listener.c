@@ -1,10 +1,10 @@
 #include <event2/listener.h>
 
 #include <string.h>
+#include "compat.h"
 
 #include "klog.h"
 #include "route.h"
-#include "compat_socket.h"
 #include "stream_listener.h"
 #include "stream_conn.h"
 

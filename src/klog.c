@@ -1,16 +1,10 @@
-#include "klog.h"
-
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-
-#ifdef _WIN32
 #include <time.h>
-#else
-#include <time.h>
-#endif
+#include "compat.h"
 
+#include "klog.h"
 #include "route.h"
 
 static int localtime_compat(const time_t *t, struct tm *out)
@@ -119,7 +113,7 @@ void log_at(char sev, const char *file, int line, const char *msg, ...)
 		sev,
 		tbuf,
 		ts.tv_nsec / 1000,
-		(long)getpid(),
+		(long)compat_getpid(),
 		file,
 		line);
 

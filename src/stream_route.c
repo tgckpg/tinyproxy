@@ -1,12 +1,12 @@
 #include <stdlib.h>
 #include <string.h>
+#include "compat.h"
 
 #include "klog.h"
 #include "stream_route.h"
 #include "worker.h"
 #include "route.h"
 #include "stream_listener.h"
-#include "compat_file.h"
 
 int start_stream_route(struct worker *w, const struct route *r,
 	struct stream_route_ctx *ctx)

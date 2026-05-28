@@ -5,7 +5,7 @@
 #include <event2/bufferevent.h>
 #include <event2/util.h>
 
-#include "compat_socket.h"
+#include "compat.h"
 
 struct worker;
 struct route;

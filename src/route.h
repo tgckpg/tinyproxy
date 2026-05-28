@@ -14,6 +14,8 @@
 #define BEV_READ_HIGH_WATER (256 * 1024)
 #define BEV_WRITE_RESUME_WATER (128 * 1024)
 
+#define UDP_MAX_PACKET 65535
+
 struct route_options {
 	bool proxy_v2;
 	bool keep_alive;

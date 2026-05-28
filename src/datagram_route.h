@@ -2,7 +2,8 @@
 #define DATAGRAM_ROUTE_H
 
 #include <event2/util.h>
-#include "compat_socket.h"
+
+#include "compat.h"
 
 struct event;
 struct event_base;
