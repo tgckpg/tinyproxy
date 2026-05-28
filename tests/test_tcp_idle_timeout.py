@@ -45,9 +45,10 @@ async def test_tcp_idle_timeout_closes_idle_connection() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp idle_timeout=1\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" idle_timeout=1\n"
 	)
 
 	backend_server = await asyncio.start_server(
@@ -100,9 +101,10 @@ async def test_tcp_idle_timeout_keeps_active_connection_open() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp idle_timeout=2\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" idle_timeout=2\n"
 	)
 
 	backend_server = await asyncio.start_server(

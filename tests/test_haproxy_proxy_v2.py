@@ -65,9 +65,10 @@ backend echo_backend
 	proxy_v2_option = os.environ.get("TINYPROXY_PROXY_V2_OPTION", "proxy_v2")
 
 	tinyproxy_conf = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{HAPROXY_FRONTEND_PORT} "
-		f"tcp {proxy_v2_option}\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{HAPROXY_FRONTEND_PORT}"
+		f" {proxy_v2_option}\n"
 	)
 
 	try:

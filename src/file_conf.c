@@ -8,8 +8,10 @@
 
 #include "klog.h"
 #include "file_conf.h"
+#include "endpoint.h"
 
 #define MAX_LINE_LEN 512
+#define MAX_ROUTE_FIELDS 32
 
 static char *trim(char *s)
 {
@@ -76,7 +78,7 @@ static int split_host_port(const char *input,
 	return 0;
 }
 
-static int parse_proto(const char *s, enum proto *out)
+static int parse_proto(const char *s, enum endpoint_proto *out)
 {
 	if (strcmp(s, "tcp") == 0) {
 		*out = PROTO_TCP;
@@ -85,6 +87,26 @@ static int parse_proto(const char *s, enum proto *out)
 
 	if (strcmp(s, "udp") == 0) {
 		*out = PROTO_UDP;
+		return 0;
+	}
+
+	if (strcmp(s, "unix") == 0) {
+		*out = PROTO_UNIX;
+		return 0;
+	}
+
+	if (strcmp(s, "unix-dgram") == 0) {
+		*out = PROTO_UNIX_DGRAM;
+		return 0;
+	}
+
+	if (strcmp(s, "file") == 0) {
+		*out = PROTO_FILE;
+		return 0;
+	}
+
+	if (strcmp(s, "builtin") == 0) {
+		*out = PROTO_BUILTIN;
 		return 0;
 	}
 
@@ -210,52 +232,68 @@ static const char *file_uri_path(const char *s)
 	return path;
 }
 
-static int parse_endpoint(const char *s, struct endpoint *ep)
+static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpoint *ep)
 {
 	const char *path;
 
 	memset(ep, 0, sizeof(*ep));
+	ep->proto = proto;
 
-	if (strncmp(s, "unix:", 5) == 0) {
-		path = s + 5;
+	switch (proto) {
+	case PROTO_TCP:
+	case PROTO_UDP:
+		ep->kind = ENDPOINT_INET;
 
-		if (path[0] == '\0') {
+		if (split_host_port(s, ep->host, sizeof(ep->host), &ep->port) != 0) {
 			return -1;
 		}
 
-		if (strlen(path) >= sizeof(ep->path)) {
+		return 0;
+
+	case PROTO_UNIX:
+		path = s;
+
+		if (strncmp(path, "unix:", 5) == 0) {
+			path += 5;
+		}
+
+		if (path[0] == '\0' || strlen(path) >= sizeof(ep->path)) {
 			return -1;
 		}
 
 		ep->kind = ENDPOINT_UNIX;
 		strcpy(ep->path, path);
 		return 0;
-	} else if (strncmp(s, "builtin://", 10) == 0) {
-		const char *name = s + 10;
-		enum x_builtin_upstream builtin;
 
-		if (name[0] == '\0') {
+	case PROTO_UNIX_DGRAM:
+		path = s;
+
+		if (strncmp(path, "unix-dgram:", 11) == 0) {
+			path += 11;
+		}
+
+		if (path[0] == '\0' || strlen(path) >= sizeof(ep->path)) {
 			return -1;
 		}
 
-		if (x_builtin_parse(name, &builtin) < 0) {
-			return -1;
-		}
-
-		ep->kind = ENDPOINT_BUILTIN;
-		ep->builtin = builtin;
-
+		ep->kind = ENDPOINT_UNIX_DGRAM;
+		strcpy(ep->path, path);
 		return 0;
-	} else if (strncmp(s, "file://", 7) == 0) {
-		const char *path = file_uri_path(s);
+
+	case PROTO_FILE:
+		if (strncmp(s, "file://", 7) == 0) {
+			path = file_uri_path(s);
+		} else {
+			path = s;
+		}
 
 		if (path[0] == '\0') {
-			LOG_ERROR("missing file:// path");
+			LOG_ERROR("missing file path");
 			return -1;
 		}
 
 		if (strlen(path) >= sizeof(ep->path)) {
-			LOG_ERROR("file:// path too long",
+			LOG_ERROR("file path too long",
 				"max", _LOGV(sizeof(ep->path) - 1)
 			);
 			return -1;
@@ -263,71 +301,94 @@ static int parse_endpoint(const char *s, struct endpoint *ep)
 
 		ep->kind = ENDPOINT_FILE;
 		strcpy(ep->path, path);
-
 		return 0;
-	} else if (strncmp(s, "unix-dgram:", 11) == 0) {
-		path = s + 11;
 
-		if (path[0] == '\0') {
+	case PROTO_BUILTIN: {
+		enum x_builtin_upstream builtin;
+		const char *name = s;
+
+		if (strncmp(name, "builtin://", 10) == 0) {
+			name += 10;
+		}
+
+		if (name[0] == '\0' || x_builtin_parse(name, &builtin) < 0) {
 			return -1;
 		}
 
-		if (strlen(path) >= sizeof(ep->path)) {
-			return -1;
-		}
-
-		ep->kind = ENDPOINT_UNIX_DGRAM;
-		strcpy(ep->path, path);
+		ep->kind = ENDPOINT_BUILTIN;
+		ep->builtin = builtin;
 		return 0;
 	}
-
-	ep->kind = ENDPOINT_INET;
-
-	if (split_host_port(s, ep->host, sizeof(ep->host), &ep->port) != 0) {
-		return -1;
 	}
 
-	return 0;
+	return -1;
 }
 
-static int parse_route_line(char *line, struct route *route)
+int parse_route_line(char *line, struct route *route)
 {
-	char *fields[4] = {0};
+	char *fields[MAX_ROUTE_FIELDS] = {0};
 	size_t count = 0;
+	size_t pos = 0;
 	char *saveptr = NULL;
 	char *tok;
+	enum endpoint_proto listen_proto;
+	enum endpoint_proto backend_proto;
 
 	tok = strtok_r(line, " \t\r\n", &saveptr);
 	while (tok != NULL) {
-		if (count >= 4) {
-			return -1; // too many fields
+		if (count >= MAX_ROUTE_FIELDS) {
+			return -1;
 		}
 
 		fields[count++] = tok;
 		tok = strtok_r(NULL, " \t\r\n", &saveptr);
 	}
 
-	if (count < 3) {
+	if (count == 0) {
+		return -1;
+	}
+
+	/* Config file form:
+	 *   listen tcp 0.0.0.0:80 tcp 10.0.1.1:80 proxy_v2
+	 *
+	 * Also accept CLI-short form:
+	 *   tcp 0.0.0.0:80 tcp 10.0.1.1:80 proxy_v2
+	 */
+	if (strcmp(fields[0], "listen") == 0) {
+		pos = 1;
+	}
+
+	if (count - pos < 4) {
 		return -1;
 	}
 
 	memset(route, 0, sizeof(*route));
 	route_options_set_defaults(&route->opts);
 
-	if (parse_endpoint(fields[0], &route->listen) != 0) {
+	if (parse_proto(fields[pos], &listen_proto) != 0) {
 		return -1;
 	}
+	pos++;
 
-	if (parse_endpoint(fields[1], &route->upstream) != 0) {
+	if (parse_endpoint(listen_proto, fields[pos], &route->listen) != 0) {
 		return -1;
 	}
+	pos++;
 
-	if (parse_proto(fields[2], &route->proto) != 0) {
+	if (parse_proto(fields[pos], &backend_proto) != 0) {
 		return -1;
 	}
+	pos++;
 
-	if (count == 4 && parse_route_options(fields[3], &route->opts) != 0) {
+	if (parse_endpoint(backend_proto, fields[pos], &route->upstream) != 0) {
 		return -1;
+	}
+	pos++;
+
+	for (; pos < count; pos++) {
+		if (parse_route_options(fields[pos], &route->opts) != 0) {
+			return -1;
+		}
 	}
 
 	return 0;

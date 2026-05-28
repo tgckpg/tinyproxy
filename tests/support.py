@@ -389,9 +389,9 @@ async def run_tinyproxy_with_conf(
 @asynccontextmanager
 async def run_default_tcp_tinyproxy(proxy_bin: str):
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}\n"
 	)
 
 	async with run_echo_backend(LISTEN_HOST, BACKEND_PORT):
@@ -407,9 +407,9 @@ async def run_default_tcp_tinyproxy(proxy_bin: str):
 @asynccontextmanager
 async def run_default_udp_tinyproxy(proxy_bin: str):
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"udp\n"
+		f"listen"
+		f" udp {LISTEN_HOST}:{PROXY_PORT}"
+		f" udp {LISTEN_HOST}:{BACKEND_PORT}\n"
 	)
 
 	async with run_udp_echo_backend(LISTEN_HOST, BACKEND_PORT):

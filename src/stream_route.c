@@ -13,21 +13,15 @@
 #include "file_conf.h"
 #include "compat_socket.h"
 #include "proxy_proto_v2.h"
+#include "worker.h"
 #include "route.h"
-#include "tcp_route.h"
+#include "stream_route.h"
 #include "x_builtins.h"
 
 #define BEV_READ_HIGH_WATER (256 * 1024)
 #define BEV_WRITE_RESUME_WATER (128 * 1024)
 
 #define FILE_CHUNK_SIZE 4096
-
-struct tcp_route_ctx {
-	struct event_base *accept_base;
-	struct worker *worker;
-	const struct route *route;
-	struct evconnlistener *listener;
-};
 
 typedef struct conn_s {
 	struct worker *owner;
@@ -637,7 +631,7 @@ static void accept_cb(
 ) {
 	(void)listener;
 
-	struct tcp_route_ctx *ctx = arg;
+	struct stream_route_ctx *ctx = arg;
 	struct accepted_client ac = {
 		.fd = client_fd,
 		.route = ctx->route,
@@ -657,7 +651,7 @@ static void accept_cb(
 
 static void accept_error_cb(struct evconnlistener *listener, void *arg)
 {
-	struct tcp_route_ctx *ctx = arg;
+	struct stream_route_ctx *ctx = arg;
 	int err = EVUTIL_SOCKET_ERROR();
 
 	LOG_ERROR("accept error", "err", _LOGV(evutil_socket_error_to_string(err)));
@@ -666,12 +660,15 @@ static void accept_error_cb(struct evconnlistener *listener, void *arg)
 	event_base_loopexit(ctx->accept_base, NULL);
 }
 
-int start_tcp_route(
+int start_stream_route(
 	struct worker *w,
 	const struct route *r,
-	struct tcp_route_ctx **out)
+	struct stream_route_ctx *ctx)
 {
 	struct sockaddr_in listen_addr;
+
+	memset(ctx, 0, sizeof(*ctx));
+
 	memset(&listen_addr, 0, sizeof(listen_addr));
 	listen_addr.sin_family = AF_INET;
 	listen_addr.sin_port = htons(r->listen.port);
@@ -681,11 +678,6 @@ int start_tcp_route(
 			"listen", _LOGV_ENDPOINT(&r->listen)
 		);
 		return -EINVAL;
-	}
-
-	struct tcp_route_ctx *ctx = calloc(1, sizeof(*ctx));
-	if (ctx == NULL) {
-		return -ENOMEM;
 	}
 
 	ctx->accept_base = w->base;
@@ -704,7 +696,7 @@ int start_tcp_route(
 
 	if (ctx->listener == NULL) {
 		LOG_ERROR("evconnlistener_new_bind failed");
-		free(ctx);
+		memset(ctx, 0, sizeof(*ctx));
 		return -EADDRINUSE;
 	}
 
@@ -721,11 +713,10 @@ int start_tcp_route(
 		"options", _LOGV(opts[0] ? opts : "")
 	);
 
-	*out = ctx;
 	return 0;
 }
 
-void free_tcp_route(struct tcp_route_ctx *ctx)
+void stop_stream_route(struct stream_route_ctx *ctx)
 {
 	if (ctx == NULL) {
 		return;
@@ -735,7 +726,7 @@ void free_tcp_route(struct tcp_route_ctx *ctx)
 		evconnlistener_free(ctx->listener);
 	}
 
-	free(ctx);
+	memset(ctx, 0, sizeof(*ctx));
 }
 
 #ifdef FUZZ

@@ -75,9 +75,10 @@ async def test_tcp_backpressure_when_upstream_does_not_read() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp idle_timeout=30\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" idle_timeout=30\n"
 	)
 
 	stop_backend = asyncio.Event()
@@ -138,9 +139,10 @@ async def test_tcp_backpressure_when_client_does_not_read() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp idle_timeout=30\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" idle_timeout=30\n"
 	)
 
 	backend_result: asyncio.Future[tuple[str, int]] = (

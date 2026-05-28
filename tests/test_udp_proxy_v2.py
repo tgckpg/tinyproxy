@@ -19,9 +19,10 @@ async def test_tinyproxy_sends_proxy_v2_for_udp() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{UDP_PROXY_V2_BACKEND_PORT} "
-		f"udp proxy_v2\n"
+		f"listen"
+		f" udp {LISTEN_HOST}:{PROXY_PORT} "
+		f" udp {LISTEN_HOST}:{UDP_PROXY_V2_BACKEND_PORT} "
+		f" proxy_v2\n"
 	)
 
 	async with run_udp_proxy_v2_echo_backend(

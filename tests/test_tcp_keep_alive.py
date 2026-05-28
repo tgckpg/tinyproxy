@@ -61,9 +61,10 @@ async def test_tcp_keep_alive_roundtrip() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp keep_alive,idle_timeout=5\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" keep_alive,idle_timeout=5\n"
 	)
 
 	backend_server = await asyncio.start_server(

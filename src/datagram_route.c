@@ -14,16 +14,17 @@
 #include "compat_socket.h"
 #include "compat_file.h"
 #include "proxy_proto_v2.h"
+#include "worker.h"
 #include "route.h"
-#include "udp_route.h"
+#include "datagram_route.h"
 #include "x_builtins.h"
 
 #define UDP_MAX_PACKET 65535
 
-struct udp_route_ctx;
+struct datagram_route_ctx;
 
 struct udp_client {
-	struct udp_route_ctx *ctx;
+	struct datagram_route_ctx *ctx;
 
 	evutil_socket_t fd;
 	struct event *ev;
@@ -36,20 +37,6 @@ struct udp_client {
 	time_t last_seen;
 
 	struct udp_client *next;
-};
-
-struct udp_route_ctx {
-	struct event_base *base;
-	struct worker *worker;
-	const struct route *route;
-
-	evutil_socket_t listen_fd;
-	struct event *listen_ev;
-
-	struct sockaddr_storage local_addr;
-	socklen_t local_addr_len;
-
-	struct udp_client *clients;
 };
 
 static int sockaddr_equal(
@@ -90,7 +77,7 @@ static void free_udp_client(struct udp_client *c)
 	free(c);
 }
 
-static void cleanup_idle_udp_clients(struct udp_route_ctx *ctx)
+static void cleanup_idle_udp_clients(struct datagram_route_ctx *ctx)
 {
 	time_t now = time(NULL);
 	struct udp_client **pp = &ctx->clients;
@@ -116,7 +103,7 @@ static void cleanup_idle_udp_clients(struct udp_route_ctx *ctx)
 }
 
 static struct udp_client *find_udp_client(
-	struct udp_route_ctx *ctx,
+	struct datagram_route_ctx *ctx,
 	const struct sockaddr_storage *addr,
 	socklen_t addr_len
 ) {
@@ -134,7 +121,7 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 	(void)events;
 
 	struct udp_client *c = arg;
-	struct udp_route_ctx *ctx = c->ctx;
+	struct datagram_route_ctx *ctx = c->ctx;
 
 	unsigned char buf[UDP_MAX_PACKET];
 
@@ -394,7 +381,7 @@ static int connect_udp_upstream(struct udp_client *c, const struct endpoint *ups
 }
 
 static struct udp_client *create_udp_client(
-	struct udp_route_ctx *ctx,
+	struct datagram_route_ctx *ctx,
 	const struct sockaddr_storage *client_addr,
 	socklen_t client_addr_len
 ) {
@@ -456,7 +443,7 @@ static int send_udp_payload_to_upstream(
 	const unsigned char *payload,
 	size_t payload_len
 ) {
-	struct udp_route_ctx *ctx = c->ctx;
+	struct datagram_route_ctx *ctx = c->ctx;
 	const struct route *r = ctx->route;
 
 	if (!r->opts.proxy_v2) {
@@ -515,7 +502,7 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 {
 	(void)events;
 
-	struct udp_route_ctx *ctx = arg;
+	struct datagram_route_ctx *ctx = arg;
 
 	cleanup_idle_udp_clients(ctx);
 
@@ -594,10 +581,10 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 	}
 }
 
-int start_udp_route(
+int start_datagram_route(
 	struct worker *w,
 	const struct route *r,
-	struct udp_route_ctx **out
+	struct datagram_route_ctx *ctx
 ) {
 	if (r->listen.kind != ENDPOINT_INET) {
 		LOG_ERROR("unsupported udp listen endpoint",
@@ -640,7 +627,7 @@ int start_udp_route(
 		return -EINVAL;
 	}
 
-	struct udp_route_ctx *ctx = calloc(1, sizeof(*ctx));
+	memset(ctx, 0, sizeof(*ctx));
 	if (ctx == NULL) {
 		return -ENOMEM;
 	}
@@ -657,7 +644,7 @@ int start_udp_route(
 		LOG_ERROR("udp listen socket failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		free(ctx);
+		memset(ctx, 0, sizeof(*ctx));
 		return -errno;
 	}
 
@@ -745,11 +732,10 @@ int start_udp_route(
 		"options", _LOGV(opts[0] ? opts : "")
 	);
 
-	*out = ctx;
 	return 0;
 }
 
-void free_udp_route(struct udp_route_ctx *ctx)
+void stop_datagram_route(struct datagram_route_ctx *ctx)
 {
 	if (ctx == NULL) {
 		return;
@@ -770,5 +756,5 @@ void free_udp_route(struct udp_route_ctx *ctx)
 		c = next;
 	}
 
-	free(ctx);
+	memset(ctx, 0, sizeof(*ctx));
 }

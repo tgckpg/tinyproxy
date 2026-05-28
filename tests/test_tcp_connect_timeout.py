@@ -36,9 +36,10 @@ async def test_tcp_connect_timeout_closes_client_connection() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{CONNECT_TIMEOUT_PROXY_PORT} "
-		f"{BLACKHOLE_HOST}:{BLACKHOLE_PORT} "
-		f"tcp connect_timeout=1,idle_timeout=30\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{CONNECT_TIMEOUT_PROXY_PORT}"
+		f" tcp {BLACKHOLE_HOST}:{BLACKHOLE_PORT}"
+		f" connect_timeout=1,idle_timeout=30\n"
 	)
 
 	async with run_tinyproxy_with_conf(
@@ -95,9 +96,10 @@ async def test_tcp_connect_timeout_does_not_replace_idle_timeout_after_connect()
 	from .support import BACKEND_PORT
 
 	conf_text = (
-		f"{LISTEN_HOST}:{CONNECT_TIMEOUT_PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"tcp connect_timeout=1,idle_timeout=2\n"
+		f"listen"
+		f" tcp {LISTEN_HOST}:{CONNECT_TIMEOUT_PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" connect_timeout=1,idle_timeout=2\n"
 	)
 
 	backend_server = await asyncio.start_server(

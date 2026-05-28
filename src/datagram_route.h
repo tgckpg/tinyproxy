@@ -1,0 +1,32 @@
+#ifndef DATAGRAM_ROUTE_H
+#define DATAGRAM_ROUTE_H
+
+#include <event2/util.h>
+#include "compat_socket.h"
+
+struct event;
+struct event_base;
+struct worker;
+struct route;
+struct udp_client;
+
+struct datagram_route_ctx {
+	struct event_base *base;
+	struct worker *worker;
+	const struct route *route;
+
+	evutil_socket_t listen_fd;
+	struct event *listen_ev;
+
+	struct sockaddr_storage local_addr;
+	socklen_t local_addr_len;
+
+	struct udp_client *clients;
+};
+
+int start_datagram_route(struct worker *w, const struct route *r,
+	struct datagram_route_ctx *ctx);
+
+void stop_datagram_route(struct datagram_route_ctx *ctx);
+
+#endif

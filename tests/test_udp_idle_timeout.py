@@ -47,9 +47,10 @@ async def test_udp_idle_timeout_expires_client_but_route_still_works() -> None:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
 	conf_text = (
-		f"{LISTEN_HOST}:{PROXY_PORT} "
-		f"{LISTEN_HOST}:{BACKEND_PORT} "
-		f"udp idle_timeout=1\n"
+		f"listen"
+		f" udp {LISTEN_HOST}:{PROXY_PORT} "
+		f" udp {LISTEN_HOST}:{BACKEND_PORT} "
+		f" idle_timeout=1\n"
 	)
 
 	loop = asyncio.get_running_loop()

@@ -10,18 +10,21 @@
 #include "klog.h"
 #include "signals.h"
 #include "file_conf.h"
-#include "tcp_route.h"
-#include "udp_route.h"
+#include "worker.h"
+#include "route.h"
+#include "route_runtime.h"
 
 static void usage(FILE *out, const char *prog)
 {
 	fprintf(out,
-		"usage: %s [-c config-file]\n"
+		"usage: %s [-c config-file | -L route]\n"
 		"\n"
 		"options:\n"
 		"  -c FILE   path to config file (default: tinyproxy.conf)\n"
-		"  -v		show the version\n"
-		"  -h		show this help\n",
+		"  -L ROUTE  add inline route, same syntax as config line\n"
+		"            may be specified multiple times\n"
+		"  -v        show the version\n"
+		"  -h        show this help\n",
 		prog);
 }
 
@@ -48,6 +51,12 @@ int main(int argc, char **argv)
 	int exit_code = 1;
 	int rc;
 
+	int conf_path_set = 0;
+
+	const char **inline_routes = NULL;
+	size_t inline_route_count = 0;
+	size_t inline_route_cap = 0;
+
 #ifdef _WIN32
 	int wsa_started = 0;
 #endif
@@ -55,37 +64,73 @@ int main(int argc, char **argv)
 	struct route *routes = NULL;
 	size_t route_count = 0;
 
-	struct tcp_route_ctx **tcp_ctxs = NULL;
-	struct udp_route_ctx **udp_ctxs = NULL;
-	size_t tcp_ctx_count = 0;
-	size_t udp_ctx_count = 0;
+	struct route_ctx *route_ctxs = NULL;
+	size_t route_ctx_count = 0;
 
 	struct event_base *base = NULL;
 	struct signal_events signals;
 	int signals_started = 0;
 
-	while ((opt = getopt(argc, argv, "c:h:v")) != -1) {
+	while ((opt = getopt(argc, argv, "c:L:h:v")) != -1) {
 		switch (opt) {
-		case 'c':
-			if (optarg == NULL || optarg[0] == '\0') {
-				LOG_ERROR("missing config path after -c");
+			case 'c':
+				if (optarg == NULL || optarg[0] == '\0') {
+					LOG_ERROR("missing config path after -c");
+					free(inline_routes);
+					return 2;
+				}
+				conf_path = optarg;
+				conf_path_set = 1;
+				break;
+
+			case 'L':
+				if (optarg == NULL || optarg[0] == '\0') {
+					LOG_ERROR("missing route after -L");
+					free(inline_routes);
+					return 2;
+				}
+
+				if (inline_route_count == inline_route_cap) {
+					size_t new_cap = inline_route_cap == 0 ? 4 : inline_route_cap * 2;
+					const char **new_routes = realloc(inline_routes,
+							new_cap * sizeof(*inline_routes));
+
+					if (new_routes == NULL) {
+						LOG_ERROR("inline route realloc failed",
+								"err", _LOGV(strerror(errno)));
+						free(inline_routes);
+						return 1;
+					}
+
+					inline_routes = new_routes;
+					inline_route_cap = new_cap;
+				}
+
+				inline_routes[inline_route_count++] = optarg;
+				break;
+
+			case 'h':
+				usage(stdout, argv[0]);
+				free(inline_routes);
+				return 0;
+
+			case 'v':
+				fprintf(stdout, "tinyproxy v0.0.1\n");
+				free(inline_routes);
+				return 0;
+
+			default:
+				usage(stderr, argv[0]);
+				free(inline_routes);
 				return 2;
-			}
-			conf_path = optarg;
-			break;
-
-		case 'h':
-			usage(stdout, argv[0]);
-			return 0;
-
-		case 'v':
-			fprintf(stdout, "tinyproxy v0.0.1\n");
-			return 0;
-
-		default:
-			usage(stderr, argv[0]);
-			return 2;
 		}
+	}
+
+	if (conf_path_set && inline_route_count > 0) {
+		LOG_ERROR("-c and -L cannot be used together");
+		usage(stderr, argv[0]);
+		free(inline_routes);
+		return 2;
 	}
 
 	if (optind != argc) {
@@ -94,12 +139,45 @@ int main(int argc, char **argv)
 		return 2;
 	}
 
-	rc = load_routes_from_file(conf_path, &routes, &route_count);
-	if (rc != 0) {
-		LOG_ERROR("failed to load config",
-			"path", _LOGV(conf_path),
-			"err", _LOGV(strerror(-rc)));
-		goto out;
+	if (inline_route_count > 0) {
+		routes = calloc(inline_route_count, sizeof(*routes));
+		if (routes == NULL) {
+			LOG_ERROR("route calloc failed", "err", _LOGV(strerror(errno)));
+			goto out;
+		}
+
+		for (size_t i = 0; i < inline_route_count; i++) {
+			char *line = strdup(inline_routes[i]);
+			if (line == NULL) {
+				LOG_ERROR("inline route strdup failed", "err", _LOGV(strerror(errno)));
+				rc = -ENOMEM;
+				goto out;
+			}
+
+			struct route *r = &routes[route_count];
+			r->line_no = (unsigned int)i + 1;
+
+			rc = parse_route_line(line, r);
+			free(line);
+
+			if (rc != 0) {
+				LOG_ERROR("failed to load inline route",
+						"line", _LOGV(r->line_no),
+						"route", _LOGV(inline_routes[i]),
+						"err", _LOGV(strerror(-rc)));
+				goto out;
+			}
+
+			route_count++;
+		}
+	} else {
+		rc = load_routes_from_file(conf_path, &routes, &route_count);
+		if (rc != 0) {
+			LOG_ERROR("failed to load config",
+					"path", _LOGV(conf_path),
+					"err", _LOGV(strerror(-rc)));
+			goto out;
+		}
 	}
 
 	if (route_count == 0) {
@@ -107,15 +185,9 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	tcp_ctxs = calloc(route_count, sizeof(*tcp_ctxs));
-	if (tcp_ctxs == NULL) {
-		LOG_ERROR("tcp calloc failed", "err", _LOGV(strerror(errno)));
-		goto out;
-	}
-
-	udp_ctxs = calloc(route_count, sizeof(*udp_ctxs));
-	if (udp_ctxs == NULL) {
-		LOG_ERROR("udp calloc failed", "err", _LOGV(strerror(errno)));
+	route_ctxs = calloc(route_count, sizeof(*route_ctxs));
+	if (route_ctxs == NULL) {
+		LOG_ERROR("route calloc failed", "err", _LOGV(strerror(errno)));
 		goto out;
 	}
 
@@ -149,33 +221,17 @@ int main(int argc, char **argv)
 	for (size_t i = 0; i < route_count; i++) {
 		const struct route *r = &routes[i];
 
-		switch (r->proto) {
-		case PROTO_TCP:
-			rc = start_tcp_route(&w, r, &tcp_ctxs[tcp_ctx_count]);
-			if (rc == 0) {
-				tcp_ctx_count++;
-			}
-			break;
-
-		case PROTO_UDP:
-			rc = start_udp_route(&w, r, &udp_ctxs[udp_ctx_count]);
-			if (rc == 0) {
-				udp_ctx_count++;
-			}
-			break;
-
-		default:
-			LOG_ERROR("route has unknown protocol", "line", _LOGV(r->line_no));
-			rc = -EINVAL;
-			break;
+		rc = start_route(&w, r, &route_ctxs[route_ctx_count]);
+		if (rc == 0) {
+			route_ctx_count++;
 		}
 
 		if (rc != 0) {
 			LOG_ERROR("failed to start route",
-				"line", _LOGV(r->line_no),
-				"listen", _LOGV_ENDPOINT(&r->listen),
-				"upstream", _LOGV_ENDPOINT(&r->upstream)
-			);
+					"line", _LOGV(r->line_no),
+					"listen", _LOGV_ENDPOINT(&r->listen),
+					"upstream", _LOGV_ENDPOINT(&r->upstream)
+					);
 			goto out;
 		}
 	}
@@ -189,21 +245,22 @@ int main(int argc, char **argv)
 	exit_code = 0;
 
 out:
-	for (size_t i = 0; i < tcp_ctx_count; i++) {
-		free_tcp_route(tcp_ctxs[i]);
+	for (size_t i = 0; i < route_ctx_count; i++) {
+		stop_route(&route_ctxs[i]);
 	}
 
 	if (signals_started) {
 		free_signal_handlers(&signals);
 	}
 
-	free(tcp_ctxs);
+	free(route_ctxs);
 
 	if (base != NULL) {
 		event_base_free(base);
 	}
 
 	free_routes(routes);
+	free(inline_routes);
 
 #ifdef _WIN32
 	if (wsa_started) {

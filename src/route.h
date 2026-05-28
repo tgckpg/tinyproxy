@@ -5,18 +5,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "x_builtins.h"
-
-struct event_base;
+#include "endpoint.h"
 
 #define ROUTE_HOST_MAX 256
 #define ROUTE_DEFAULT_IDLE_TIMEOUT_SEC 60
 #define ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC 5
-
-enum proto {
-	PROTO_TCP,
-	PROTO_UDP,
-};
 
 struct route_options {
 	bool proxy_v2;
@@ -26,41 +19,15 @@ struct route_options {
 	int connect_timeout_sec;
 };
 
-enum endpoint_kind {
-	ENDPOINT_INET,
-	ENDPOINT_UNIX,
-	ENDPOINT_UNIX_DGRAM,
-	ENDPOINT_BUILTIN,
-	ENDPOINT_FILE,
-};
-
-struct endpoint {
-	enum endpoint_kind kind;
-
-	char host[256];
-	uint16_t port;
-
-	char path[108]; /* sockaddr_un sun_path limit on Linux */
-
-	enum x_builtin_upstream builtin;
-};
-
 struct route {
 	struct endpoint listen;
 	struct endpoint upstream;
 
-	enum proto proto;
 	struct route_options opts;
 
 	unsigned int line_no;
 };
 
-struct worker {
-	struct event_base *base;
-	size_t id;
-};
-
-int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len);
 void route_options_str(const struct route_options *opts, char *buf, size_t buflen);
 
 #endif
