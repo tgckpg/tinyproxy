@@ -8,7 +8,7 @@
 enum endpoint_proto {
 	PROTO_TCP,
 	PROTO_UDP,
-	PROTO_UNIX,
+	PROTO_UNIX_STREAM,
 	PROTO_UNIX_DGRAM,
 	PROTO_FILE,
 	PROTO_BUILTIN,
@@ -36,5 +36,9 @@ struct endpoint {
 };
 
 int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len);
+
+bool endpoint_is_stream(const struct endpoint *ep);
+bool endpoint_is_datagram(const struct endpoint *ep);
+bool endpoint_is_listenable(const struct endpoint *ep);
 
 #endif

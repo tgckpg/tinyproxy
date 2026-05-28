@@ -221,6 +221,16 @@ int main(int argc, char **argv)
 	for (size_t i = 0; i < route_count; i++) {
 		const struct route *r = &routes[i];
 
+		rc = validate_route(r);
+		if (rc != 0) {
+			LOG_ERROR("invalid route",
+					"line", _LOGV(r->line_no),
+					"listen", _LOGV_ENDPOINT(&r->listen),
+					"upstream", _LOGV_ENDPOINT(&r->upstream)
+					);
+			goto out;
+		}
+
 		rc = start_route(&w, r, &route_ctxs[route_ctx_count]);
 		if (rc == 0) {
 			route_ctx_count++;

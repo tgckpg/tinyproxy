@@ -1,3 +1,4 @@
+#include <stdbool.h>
 #include <stdio.h>
 #include <errno.h>
 
@@ -41,4 +42,39 @@ int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len)
 	}
 }
 
+bool endpoint_is_stream(const struct endpoint *ep)
+{
+	if (ep == NULL) {
+		return false;
+	}
 
+	switch (ep->proto) {
+	case PROTO_TCP:
+	case PROTO_UNIX_STREAM:
+		return true;
+
+	default:
+		return false;
+	}
+}
+
+bool endpoint_is_datagram(const struct endpoint *ep)
+{
+	if (ep == NULL) {
+		return false;
+	}
+
+	switch (ep->proto) {
+	case PROTO_UDP:
+	case PROTO_UNIX_DGRAM:
+		return true;
+
+	default:
+		return false;
+	}
+}
+
+bool endpoint_is_listenable(const struct endpoint *ep)
+{
+	return endpoint_is_stream(ep) || endpoint_is_datagram(ep);
+}

@@ -91,7 +91,7 @@ static int parse_proto(const char *s, enum endpoint_proto *out)
 	}
 
 	if (strcmp(s, "unix") == 0) {
-		*out = PROTO_UNIX;
+		*out = PROTO_UNIX_STREAM;
 		return 0;
 	}
 
@@ -250,7 +250,7 @@ static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpo
 
 		return 0;
 
-	case PROTO_UNIX:
+	case PROTO_UNIX_STREAM:
 		path = s;
 
 		if (strncmp(path, "unix:", 5) == 0) {

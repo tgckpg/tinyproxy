@@ -21,6 +21,8 @@ struct route_ctx {
 	} u;
 };
 
+int validate_route(const struct route *r);
+
 int start_route(struct worker *w, const struct route *r, struct route_ctx *ctx);
 void stop_route(struct route_ctx *ctx);
 

@@ -581,22 +581,14 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 	}
 }
 
-int start_datagram_route(
-	struct worker *w,
-	const struct route *r,
-	struct datagram_route_ctx *ctx
-) {
-	if (r->listen.kind != ENDPOINT_INET) {
-		LOG_ERROR("unsupported udp listen endpoint",
-			"listen", _LOGV_ENDPOINT(&r->listen)
-		);
-		return -ENOTSUP;
-	}
+static int prepare_datagram_route(struct datagram_route_ctx *ctx)
+{
+	const struct route *r = ctx->route;
 
 	if (r->upstream.kind != ENDPOINT_INET &&
 		r->upstream.kind != ENDPOINT_BUILTIN &&
 		r->upstream.kind != ENDPOINT_UNIX_DGRAM) {
-		LOG_ERROR("unsupported udp upstream endpoint",
+		LOG_ERROR("unsupported datagram upstream endpoint",
 			"upstream", _LOGV_ENDPOINT(&r->upstream)
 		);
 		return -ENOTSUP;
@@ -614,7 +606,15 @@ int start_datagram_route(
 		}
 	}
 
+	return 0;
+}
+
+static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
+{
+	const struct route *r = ctx->route;
 	struct sockaddr_in listen_addr;
+	int one = 1;
+
 	memset(&listen_addr, 0, sizeof(listen_addr));
 
 	listen_addr.sin_family = AF_INET;
@@ -627,16 +627,6 @@ int start_datagram_route(
 		return -EINVAL;
 	}
 
-	memset(ctx, 0, sizeof(*ctx));
-	if (ctx == NULL) {
-		return -ENOMEM;
-	}
-
-	ctx->base = w->base;
-	ctx->worker = w;
-	ctx->route = r;
-	ctx->listen_fd = -1;
-
 	ctx->listen_fd = socket(AF_INET, SOCK_DGRAM, 0);
 	if (ctx->listen_fd < 0) {
 		int err = EVUTIL_SOCKET_ERROR();
@@ -644,20 +634,16 @@ int start_datagram_route(
 		LOG_ERROR("udp listen socket failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		memset(ctx, 0, sizeof(*ctx));
-		return -errno;
+		return -err;
 	}
 
 	evutil_make_socket_closeonexec(ctx->listen_fd);
 
 	if (evutil_make_socket_nonblocking(ctx->listen_fd) < 0) {
 		LOG_ERROR("evutil_make_socket_nonblocking failed");
-		evutil_closesocket(ctx->listen_fd);
-		free(ctx);
 		return -EINVAL;
 	}
 
-	int one = 1;
 	setsockopt(
 		ctx->listen_fd,
 		SOL_SOCKET,
@@ -676,8 +662,6 @@ int start_datagram_route(
 		LOG_ERROR("udp bind failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		evutil_closesocket(ctx->listen_fd);
-		free(ctx);
 		return -EADDRINUSE;
 	}
 
@@ -694,8 +678,6 @@ int start_datagram_route(
 		LOG_ERROR("udp getsockname failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		evutil_closesocket(ctx->listen_fd);
-		free(ctx);
 		return -EINVAL;
 	}
 
@@ -708,24 +690,63 @@ int start_datagram_route(
 	);
 	if (ctx->listen_ev == NULL) {
 		LOG_ERROR("event_new failed for udp listener");
-		evutil_closesocket(ctx->listen_fd);
-		free(ctx);
 		return -ENOMEM;
 	}
 
 	if (event_add(ctx->listen_ev, NULL) < 0) {
 		LOG_ERROR("event_add failed for udp listener");
-		event_free(ctx->listen_ev);
-		evutil_closesocket(ctx->listen_fd);
-		free(ctx);
 		return -EINVAL;
 	}
 
+	return 0;
+}
+
+int start_datagram_route(
+	struct worker *w,
+	const struct route *r,
+	struct datagram_route_ctx *ctx
+) {
+	int rc;
 	char opts[128];
+
+	if (ctx == NULL) {
+		return -EINVAL;
+	}
+
+	memset(ctx, 0, sizeof(*ctx));
+
+	ctx->base = w->base;
+	ctx->worker = w;
+	ctx->route = r;
+	ctx->listen_fd = -1;
+
+	rc = prepare_datagram_route(ctx);
+	if (rc != 0) {
+		memset(ctx, 0, sizeof(*ctx));
+		return rc;
+	}
+
+	switch (r->listen.kind) {
+	case ENDPOINT_INET:
+		rc = bind_udp_datagram_listener(ctx);
+		break;
+
+	default:
+		LOG_ERROR("unsupported datagram listen endpoint",
+			"listen", _LOGV_ENDPOINT(&r->listen)
+		);
+		rc = -ENOTSUP;
+		break;
+	}
+
+	if (rc != 0) {
+		stop_datagram_route(ctx);
+		return rc;
+	}
 
 	route_options_str(&r->opts, opts, sizeof(opts));
 
-	LOG_INFO("udp route started",
+	LOG_INFO("datagram route started",
 		"line", _LOGV(r->line_no),
 		"listen", _LOGV_ENDPOINT(&r->listen),
 		"upstream", _LOGV_ENDPOINT(&r->upstream),
@@ -741,20 +762,23 @@ void stop_datagram_route(struct datagram_route_ctx *ctx)
 		return;
 	}
 
+	while (ctx->clients != NULL) {
+		struct udp_client *c = ctx->clients;
+		ctx->clients = c->next;
+		c->next = NULL;
+		free_udp_client(c);
+	}
+
 	if (ctx->listen_ev != NULL) {
 		event_free(ctx->listen_ev);
+		ctx->listen_ev = NULL;
 	}
 
 	if (ctx->listen_fd >= 0) {
 		evutil_closesocket(ctx->listen_fd);
-	}
-
-	struct udp_client *c = ctx->clients;
-	while (c != NULL) {
-		struct udp_client *next = c->next;
-		free_udp_client(c);
-		c = next;
+		ctx->listen_fd = -1;
 	}
 
 	memset(ctx, 0, sizeof(*ctx));
+	ctx->listen_fd = -1;
 }

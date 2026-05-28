@@ -660,14 +660,10 @@ static void accept_error_cb(struct evconnlistener *listener, void *arg)
 	event_base_loopexit(ctx->accept_base, NULL);
 }
 
-int start_stream_route(
-	struct worker *w,
-	const struct route *r,
-	struct stream_route_ctx *ctx)
+static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 {
+	const struct route *r = ctx->route;
 	struct sockaddr_in listen_addr;
-
-	memset(ctx, 0, sizeof(*ctx));
 
 	memset(&listen_addr, 0, sizeof(listen_addr));
 	listen_addr.sin_family = AF_INET;
@@ -675,14 +671,9 @@ int start_stream_route(
 
 	if (inet_pton(AF_INET, r->listen.host, &listen_addr.sin_addr) != 1) {
 		LOG_ERROR("invalid listen address",
-			"listen", _LOGV_ENDPOINT(&r->listen)
-		);
+			"listen", _LOGV_ENDPOINT(&r->listen));
 		return -EINVAL;
 	}
-
-	ctx->accept_base = w->base;
-	ctx->worker = w;
-	ctx->route = r;
 
 	ctx->listener = evconnlistener_new_bind(
 		ctx->accept_base,
@@ -695,14 +686,45 @@ int start_stream_route(
 	);
 
 	if (ctx->listener == NULL) {
-		LOG_ERROR("evconnlistener_new_bind failed");
-		memset(ctx, 0, sizeof(*ctx));
+		LOG_ERROR("evconnlistener_new_bind failed",
+			"listen", _LOGV_ENDPOINT(&r->listen));
 		return -EADDRINUSE;
 	}
 
-	evconnlistener_set_error_cb(ctx->listener, accept_error_cb);
+	return 0;
+}
 
+int start_stream_route(struct worker *w, const struct route *r,
+	struct stream_route_ctx *ctx)
+{
+	int rc;
 	char opts[128];
+
+	memset(ctx, 0, sizeof(*ctx));
+
+	ctx->accept_base = w->base;
+	ctx->worker = w;
+	ctx->route = r;
+
+	switch (r->listen.proto) {
+	case PROTO_TCP:
+		rc = bind_tcp_stream_listener(ctx);
+		break;
+
+	default:
+		LOG_ERROR("stream listen protocol not implemented yet",
+			"line", _LOGV(r->line_no),
+			"listen", _LOGV_ENDPOINT(&r->listen));
+		rc = -ENOTSUP;
+		break;
+	}
+
+	if (rc != 0) {
+		memset(ctx, 0, sizeof(*ctx));
+		return rc;
+	}
+
+	evconnlistener_set_error_cb(ctx->listener, accept_error_cb);
 
 	route_options_str(&r->opts, opts, sizeof(opts));
 
@@ -710,8 +732,7 @@ int start_stream_route(
 		"line", _LOGV(r->line_no),
 		"listen", _LOGV_ENDPOINT(&r->listen),
 		"upstream", _LOGV_ENDPOINT(&r->upstream),
-		"options", _LOGV(opts[0] ? opts : "")
-	);
+		"options", _LOGV(opts[0] ? opts : ""));
 
 	return 0;
 }
