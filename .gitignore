@@ -11,6 +11,7 @@ __pycache__
 # Generated man pages from scdoc
 docs/*.1
 docs/*.5
+docs/*.7
 docs/*.8
 
 # Prerequisites

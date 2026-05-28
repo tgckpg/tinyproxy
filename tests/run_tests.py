@@ -20,6 +20,7 @@ from . import test_udp_basic
 from . import test_udp_idle_timeout
 from . import test_haproxy_proxy_v2
 from . import test_udp_proxy_v2
+from . import test_unix_listeners
 
 
 TCP_PROXY_TEST_MODULES = [
@@ -32,6 +33,7 @@ UDP_PROXY_TEST_MODULES = [
 ]
 
 STANDALONE_TEST_MODULES = [
+	test_unix_listeners,
 	test_haproxy_proxy_v2,
 	test_udp_proxy_v2,
 	test_tcp_backpressure,

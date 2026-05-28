@@ -335,11 +335,11 @@ async def run_echo_backend(
 		server.close()
 		await server.wait_closed()
 
-
 @asynccontextmanager
 async def run_tinyproxy_with_conf(
 	proxy_bin: str,
-	conf_text: str,
+	conf_text: str | None = None,
+	args: list[str] | None = None,
 	listen_host: str = LISTEN_HOST,
 	listen_port: int = PROXY_PORT,
 	proto: str = "tcp",
@@ -348,10 +348,20 @@ async def run_tinyproxy_with_conf(
 	proxy = None
 
 	try:
-		conf_path = write_temp_file(conf_text, ".conf")
+		cmd = [proxy_bin]
+
+		if conf_text is not None:
+			conf_path = write_temp_file(conf_text, ".conf")
+			cmd += ["-c", conf_path]
+
+		if args:
+			cmd += args
+
+		if conf_text is None and not args:
+			raise ValueError("run_tinyproxy_with_conf requires conf_text or args")
 
 		proxy = subprocess.Popen(
-			[proxy_bin, "-c", conf_path],
+			cmd,
 			stdout=subprocess.PIPE,
 			stderr=subprocess.PIPE,
 			text=True,
@@ -384,7 +394,6 @@ async def run_tinyproxy_with_conf(
 				os.unlink(conf_path)
 			except FileNotFoundError:
 				pass
-
 
 @asynccontextmanager
 async def run_default_tcp_tinyproxy(proxy_bin: str):

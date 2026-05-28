@@ -17,7 +17,8 @@ Supported endpoint types:
 - UDP
 - UNIX stream sockets
 - UNIX datagram sockets
-- file:// backends
+- file backends
+- Some builtin backends
 
 Features:
 - PROXY protocol v2
