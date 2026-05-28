@@ -80,6 +80,13 @@ static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 	return 0;
 }
 
+#ifdef _WIN32
+static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
+{
+	(void)ctx;
+	return -EAFNOSUPPORT;
+}
+#else
 static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 {
 	const struct endpoint *ep = &ctx->route->listen;
@@ -159,3 +166,4 @@ int bind_stream_listener(struct stream_route_ctx *ctx)
 		return  -ENOTSUP;
 	}
 }
+#endif
