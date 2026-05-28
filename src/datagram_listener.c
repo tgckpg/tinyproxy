@@ -7,67 +7,6 @@
 #include "datagram_listener.h"
 #include "datagram_client.h"
 #include "datagram_builtin.h"
-#include "proxy_proto_v2.h"
-
-static int send_datagram_payload_to_upstream(
-	struct datagram_client *c,
-	const unsigned char *payload,
-	size_t payload_len
-) {
-	struct datagram_route_ctx *ctx = c->ctx;
-	const struct route *r = ctx->route;
-
-	if (!r->opts.proxy_v2) {
-		ssize_t sent = send(c->fd, (const char *)payload, payload_len, 0);
-		if (sent < 0) {
-			return -EVUTIL_SOCKET_ERROR();
-		}
-
-		return 0;
-	}
-
-	if (c->client_addr.ss_family != AF_INET ||
-		ctx->local_addr.ss_family != AF_INET) {
-		LOG_ERROR("PROXY v2 UDP currently only supports IPv4",
-			"client_family", _LOGV(c->client_addr.ss_family),
-			"local_family", _LOGV(ctx->local_addr.ss_family)
-		);
-		return -EAFNOSUPPORT;
-	}
-
-	unsigned char hdr[256];
-	size_t hdr_len = 0;
-
-	int rc = proxy_v2_build(
-		hdr,
-		sizeof(hdr),
-		(const struct sockaddr *)&c->client_addr,
-		c->client_addr_len,
-		(const struct sockaddr *)&ctx->local_addr,
-		ctx->local_addr_len,
-		SOCK_DGRAM,
-		&hdr_len
-	);
-	if (rc != 0) {
-		return rc;
-	}
-
-	if (hdr_len + payload_len > UDP_MAX_PACKET) {
-		return -EMSGSIZE;
-	}
-
-	unsigned char out[UDP_MAX_PACKET];
-
-	memcpy(out, hdr, hdr_len);
-	memcpy(out + hdr_len, payload, payload_len);
-
-	ssize_t sent = send(c->fd, (const char *)out, hdr_len + payload_len, 0);
-	if (sent < 0) {
-		return -EVUTIL_SOCKET_ERROR();
-	}
-
-	return 0;
-}
 
 static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 {

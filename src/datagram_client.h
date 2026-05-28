@@ -34,4 +34,10 @@ struct datagram_client *find_datagram_client(
 	socklen_t addr_len
 );
 
+int send_datagram_payload_to_upstream(
+	struct datagram_client *c,
+	const unsigned char *payload,
+	size_t payload_len
+);
+
 #endif

@@ -1,16 +1,10 @@
 #include <event2/event.h>
-#include <event2/util.h>
 
 #include <errno.h>
-#include <stdint.h>
-#include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "klog.h"
 #include "env.h"
-#include "file_conf.h"
-#include "proxy_proto_v2.h"
 #include "worker.h"
 #include "route.h"
 #include "datagram_route.h"
