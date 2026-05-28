@@ -48,8 +48,8 @@ async def test_udp_idle_timeout_expires_client_but_route_still_works() -> None:
 
 	conf_text = (
 		f"listen"
-		f" udp {LISTEN_HOST}:{PROXY_PORT} "
-		f" udp {LISTEN_HOST}:{BACKEND_PORT} "
+		f" udp {LISTEN_HOST}:{PROXY_PORT}"
+		f" udp {LISTEN_HOST}:{BACKEND_PORT}"
 		f" idle_timeout=1\n"
 	)
 

@@ -20,8 +20,8 @@ async def test_tinyproxy_sends_proxy_v2_for_udp() -> None:
 
 	conf_text = (
 		f"listen"
-		f" udp {LISTEN_HOST}:{PROXY_PORT} "
-		f" udp {LISTEN_HOST}:{UDP_PROXY_V2_BACKEND_PORT} "
+		f" udp {LISTEN_HOST}:{PROXY_PORT}"
+		f" udp {LISTEN_HOST}:{UDP_PROXY_V2_BACKEND_PORT}"
 		f" proxy_v2\n"
 	)
 
