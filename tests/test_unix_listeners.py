@@ -1,6 +1,7 @@
 import asyncio
 import os
 import socket
+import sys
 
 from .support import (
 	LISTEN_HOST,
@@ -87,6 +88,8 @@ def unix_dgram_roundtrip(sock_path: str, payload: bytes) -> bytes:
 
 
 async def test_unix_stream_to_tcp() -> None:
+	if sys.platform.startswith("win"):
+		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -135,6 +138,8 @@ async def test_unix_stream_to_tcp() -> None:
 
 
 async def test_unix_stream_to_builtin_client_addr() -> None:
+	if sys.platform.startswith("win"):
+		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -167,6 +172,8 @@ async def test_unix_stream_to_builtin_client_addr() -> None:
 
 
 async def test_unix_dgram_to_udp() -> None:
+	if sys.platform.startswith("win"):
+		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -202,6 +209,8 @@ async def test_unix_dgram_to_udp() -> None:
 
 
 async def test_unix_dgram_to_builtin_client_addr() -> None:
+	if sys.platform.startswith("win"):
+		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -229,6 +238,8 @@ async def test_unix_dgram_to_builtin_client_addr() -> None:
 		unlink_if_exists(UNIX_DGRAM_BUILTIN_SOCK)
 
 async def test_unix_stream_to_unix_stream() -> None:
+	if sys.platform.startswith("win"):
+		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -295,6 +306,8 @@ async def unix_dgram_echo_server(path: str):
 	)
 
 async def test_unix_dgram_to_unix_dgram() -> None:
+	if sys.platform.startswith("win"):
+		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
