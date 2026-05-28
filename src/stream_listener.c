@@ -149,6 +149,7 @@ static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 	ctx->listener = listener;
 	return 0;
 }
+#endif
 
 int bind_stream_listener(struct stream_route_ctx *ctx)
 {
@@ -166,4 +167,3 @@ int bind_stream_listener(struct stream_route_ctx *ctx)
 		return  -ENOTSUP;
 	}
 }
-#endif
