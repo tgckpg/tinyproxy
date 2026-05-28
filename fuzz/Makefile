@@ -12,8 +12,10 @@ OUT := $(PROJECT_ROOT)/bin/fuzz
 CORPUS := $(PROJECT_ROOT)/corpus
 SEEDS := seeds
 
-TARGETS := proxy_v2_build file_conf tcp_route
+TARGETS := proxy_v2_build file_conf stream_conn
 BINS := $(addprefix $(OUT)/fuzz_,$(TARGETS))
+
+PROJECT_SRCS := $(filter-out $(SRC_DIR)/tinyproxy.c,$(wildcard $(SRC_DIR)/*.c))
 
 FUZZ_CFLAGS ?= -g -O1 -DFUZZ -fsanitize=fuzzer,address,undefined
 FUZZ_LDFLAGS ?= -fsanitize=fuzzer,address,undefined
@@ -51,22 +53,12 @@ $(OUT)/fuzz_file_conf: \
 		-o $@ \
 		$(LDFLAGS) $(FUZZ_LDFLAGS) $(LDLIBS)
 
-$(OUT)/fuzz_tcp_route: \
-	fuzz_tcp_route.c \
-	$(SRC_DIR)/tcp_route.c \
-	$(SRC_DIR)/proxy_proto_v2.c \
-	$(SRC_DIR)/klog.c \
-	$(LIBEVENT_DEPS) \
-	| $(OUT)
+$(OUT)/fuzz_stream_conn: fuzz_stream_conn.c $(PROJECT_SRCS)
 	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
-		$(SRC_DIR)/tcp_route.c \
-		$(SRC_DIR)/proxy_proto_v2.c \
-		$(SRC_DIR)/route.c \
-		$(SRC_DIR)/x_builtins.c \
-		$(SRC_DIR)/klog.c \
-		fuzz_tcp_route.c \
+		-I$(SRC_DIR) \
+		$^ \
 		-o $@ \
-		$(LDFLAGS) $(FUZZ_LDFLAGS) $(LDLIBS)
+		$(LDFLAGS) $(LDLIBS)
 
 seed-%: FORCE
 	mkdir -p $(CORPUS)/$*

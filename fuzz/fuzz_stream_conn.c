@@ -13,8 +13,7 @@
 #include <event2/event.h>
 
 #include "route.h"
-#include "tcp_route.h"
-#include "klog.h"
+#include "stream_conn.h"
 
 static void set_nonblock(int fd)
 {
@@ -47,7 +46,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	struct route r;
 	memset(&r, 0, sizeof(r));
 
-	r.proto = PROTO_TCP;
 	r.line_no = 1;
 
 	/*
@@ -56,6 +54,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	r.listen.kind = ENDPOINT_INET;
 	snprintf(r.listen.host, sizeof(r.listen.host), "127.0.0.1");
 	r.listen.port = 12345;
+	r.listen.proto = PROTO_TCP;
 
 	/*
 	 * Important: this should be something connect_upstream() can handle.
@@ -65,6 +64,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	r.upstream.kind = ENDPOINT_INET;
 	snprintf(r.upstream.host, sizeof(r.upstream.host), "127.0.0.1");
 	r.upstream.port = 9;
+	r.upstream.proto = PROTO_TCP;
 
 	r.opts.proxy_v2 = (data[0] & 1) != 0;
 	r.opts.keep_alive = (data[0] & 2) != 0;
@@ -77,7 +77,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 	struct sockaddr_un *sun = (struct sockaddr_un *)&peer;
 	sun->sun_family = AF_UNIX;
 
-	if (tcp_route_adopt_client_for_fuzz(
+	if (stream_route_adopt_client_for_fuzz(
 		    base,
 		    &r,
 		    sv[1],

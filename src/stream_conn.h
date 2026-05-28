@@ -9,4 +9,13 @@ void free_conn(conn_t *conn);
 void set_client_idle_timeout(conn_t *conn, const struct route *r);
 void event_cb(struct bufferevent *bev, short events, void *arg);
 
+#ifdef FUZZ
+int stream_route_adopt_client_for_fuzz(
+	struct event_base *base,
+	const struct route *r,
+	evutil_socket_t client_fd,
+	const struct sockaddr_storage *peer_addr,
+	socklen_t peer_addr_len);
+#endif
+
 #endif

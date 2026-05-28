@@ -354,3 +354,40 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 void dispatch_client_fd(struct worker *w, struct accepted_client *ac) {
 	worker_adopt_client_fd(w, ac);
 }
+
+#ifdef FUZZ
+int stream_route_adopt_client_for_fuzz(
+	struct event_base *base,
+	const struct route *r,
+	evutil_socket_t client_fd,
+	const struct sockaddr_storage *peer_addr,
+	socklen_t peer_addr_len
+) {
+	if (base == NULL || r == NULL || client_fd < 0) {
+		return -1;
+	}
+
+	struct worker w;
+	memset(&w, 0, sizeof(w));
+
+	w.base = base;
+	w.id = 0;
+
+	struct accepted_client ac;
+	memset(&ac, 0, sizeof(ac));
+
+	ac.fd = client_fd;
+	ac.route = r;
+
+	if (peer_addr != NULL &&
+	    peer_addr_len > 0 &&
+	    peer_addr_len <= sizeof(ac.peer_addr)) {
+		memcpy(&ac.peer_addr, peer_addr, peer_addr_len);
+		ac.peer_addr_len = peer_addr_len;
+	}
+
+	worker_adopt_client_fd(&w, &ac);
+
+	return 0;
+}
+#endif
