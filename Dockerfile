@@ -7,6 +7,7 @@ RUN mkdir /build
 WORKDIR /build
 
 COPY [ "*.conf", "Makefile", "/build" ]
+COPY ./mk /build/mk
 COPY ./src /build/src
 
 RUN make all STATIC=1
@@ -17,12 +18,12 @@ RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
 COPY tests ./tests
 RUN make test STATIC=1
 
-RUN cp /src/tinyproxy.conf /etc/ && cp /src/bin/tinyproxy /usr/bin/
+RUN cp /build/tinyproxy.conf /etc/ && cp /build/bin/tinyproxy /usr/bin/
 
 FROM scratch
 
-COPY --from=build /src/bin/tinyproxy /usr/bin/tinyproxy
-COPY --from=build /src/tinyproxy.conf /etc/tinyproxy.conf
+COPY --from=build /build/bin/tinyproxy /usr/bin/tinyproxy
+COPY --from=build /build/tinyproxy.conf /etc/tinyproxy.conf
 
 ENTRYPOINT ["/usr/bin/tinyproxy"]
 CMD ["-c", "/etc/tinyproxy.conf"]
