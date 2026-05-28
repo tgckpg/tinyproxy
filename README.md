@@ -14,34 +14,18 @@ An L4 proxy designed to act as a tiny transparent shim.
 Configuration is line-based:
 
 ```text
-LISTEN_HOST:LISTEN_PORT UPSTREAM_HOST:UPSTREAM_PORT PROTO [OPTIONS...]
+listen <listen-proto> <listen-endpoint> <backend-proto> <backend-endpoint> [options...]
 ```
 
-Example TCP route:
+Example routes:
 
 ```text
-127.0.0.1:31232 127.0.0.1:41232 tcp
+tinyproxy \
+    -L "tcp :31232 tcp 127.0.0.1:41232" \
+    -L "udp :31232 udp 127.0.0.1:41232"
 ```
 
-Example UDP route:
-
-```text
-127.0.0.1:31232 127.0.0.1:41232 udp
-```
-
-Example TCP route with Proxy Protocol v2:
-
-```text
-127.0.0.1:31232 127.0.0.1:41232 tcp proxy_v2
-```
-
-Example UDP route with Proxy Protocol v2:
-
-```text
-127.0.0.1:31232 127.0.0.1:41232 udp proxy_v2
-```
-
-Run with:
+Run with config file:
 
 ```sh
 tinyproxy -c tinyproxy.conf
