@@ -24,8 +24,24 @@ static void usage(FILE *out, const char *prog)
 		prog);
 }
 
+static void prevent_socket_write_from_killing_process(void)
+{
+#ifndef _WIN32
+	/*
+	 * On Unix, writing to a closed socket may raise SIGPIPE.
+	 * The default SIGPIPE action is process termination.
+	 *
+	 * Proxies must treat closed peers as ordinary I/O errors,
+	 * not as a reason to kill the whole daemon.
+	 */
+	signal(SIGPIPE, SIG_IGN);
+#endif
+}
+
 int main(int argc, char **argv)
 {
+	prevent_socket_write_from_killing_process();
+
 	const char *conf_path = "tinyproxy.conf";
 	int opt;
 	int exit_code = 1;

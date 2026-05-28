@@ -30,6 +30,10 @@ int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len)
 		snprintf(buf, buf_len, "builtin://%s", x_builtin_name(ep->builtin));
 		return 0;
 
+	case ENDPOINT_FILE:
+		snprintf(buf, buf_len, "file://%s", ep->path);
+		return 0;
+
 	default:
 		snprintf(buf, buf_len, "<unknown>");
 		return 0;

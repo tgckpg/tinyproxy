@@ -4,6 +4,7 @@ PROJECT_ROOT := $(CURDIR)
 
 include mk/common.mk
 include mk/libevent.mk
+include mk/man.mk
 
 BIN := $(BIN_DIR)/tinyproxy$(EXEEXT)
 

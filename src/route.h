@@ -31,6 +31,7 @@ enum endpoint_kind {
 	ENDPOINT_UNIX,
 	ENDPOINT_UNIX_DGRAM,
 	ENDPOINT_BUILTIN,
+	ENDPOINT_FILE,
 };
 
 struct endpoint {

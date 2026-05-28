@@ -1,4 +1,5 @@
 bin/
+dist/
 build/
 corpus/
 libevent2/
@@ -6,6 +7,11 @@ __pycache__
 *.log
 *.swp
 .DS_Store
+
+# Generated man pages from scdoc
+docs/*.1
+docs/*.5
+docs/*.8
 
 # Prerequisites
 *.d

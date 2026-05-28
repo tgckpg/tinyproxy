@@ -193,6 +193,23 @@ static inline void route_options_set_defaults(struct route_options *opts)
 	opts->connect_timeout_sec = ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC;
 }
 
+static const char *file_uri_path(const char *s)
+{
+	const char *path = s + 7; /* file:// */
+
+#ifdef _WIN32
+	/* Accept file:///C:/path as C:/path */
+	if (path[0] == '/' &&
+	    ((path[1] >= 'A' && path[1] <= 'Z') ||
+	     (path[1] >= 'a' && path[1] <= 'z')) &&
+	    path[2] == ':') {
+		path++;
+	}
+#endif
+
+	return path;
+}
+
 static int parse_endpoint(const char *s, struct endpoint *ep)
 {
 	const char *path;
@@ -227,6 +244,25 @@ static int parse_endpoint(const char *s, struct endpoint *ep)
 
 		ep->kind = ENDPOINT_BUILTIN;
 		ep->builtin = builtin;
+
+		return 0;
+	} else if (strncmp(s, "file://", 7) == 0) {
+		const char *path = file_uri_path(s);
+
+		if (path[0] == '\0') {
+			LOG_ERROR("missing file:// path");
+			return -1;
+		}
+
+		if (strlen(path) >= sizeof(ep->path)) {
+			LOG_ERROR("file:// path too long",
+				"max", _LOGV(sizeof(ep->path) - 1)
+			);
+			return -1;
+		}
+
+		ep->kind = ENDPOINT_FILE;
+		strcpy(ep->path, path);
 
 		return 0;
 	} else if (strncmp(s, "unix-dgram:", 11) == 0) {
