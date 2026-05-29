@@ -14,7 +14,7 @@ TINYPROXY_RUNTIME_DIR="/tmp/tinyproxy"
 
 # ROUTES
 
-listen upstream protocol [options...]
+listen <listen-proto> <listen-endpoint> <backend-proto> <backend-endpoint> [options...]
 
 # OPTIONS
 
@@ -36,51 +36,86 @@ connect_timeout=SECONDS
 
 # ENDPOINTS
 
-unix:
-	unix:/tmp/backend.sock
+unix /tmp/backend.sock
+	Unix sock
 
-unix datagram:
-	unix-dgram:/tmp/socket.sock
+unix-dgram /tmp/socket.sock
+	Unix sock datagram
 
-builtin://client_addr
+file /path/to/file
+	File contents in raw bytes
+
+## Builtin
+
+builtin clientaddr
 	Returns the observed client address as plain text, then closes.
+
 	Example response: 127.0.0.1:54321
 
-builtin://discard
-	TCP: reads and discards client data until the client closes or timeout expires.
-	UDP: silently drops each datagram.
+builtin discard
+	- TCP: reads and discards client data until the client closes or timeout expires.
+	- UDP: silently drops each datagram.
 
-builtin://hang
+builtin hang
 	Accepts the connection/datagram and intentionally produces no response.
-	TCP: the connection remains open until the client closes or the route idle timeout expires.
-	UDP: this is effectively a silent drop.
 
-builtin://close
-	Accepts the connection and immediately closes it without reading or writing.
-	For UDP, this is equivalent to discard/drop because UDP has no connection to close.
+	- TCP: the connection remains open until the client closes or the route idle timeout expires.
+	- UDP: this is effectively a silent drop.
 
-file:///path/to/file
-	Return the contents of the file in raw bytes.
+builtin close
+	- TCP: Accepts the connection and immediately closes it without reading or writing.
+	- UDP: this is equivalent to discard/drop because UDP has no connection to close.
+
+buitin http-ok
+	Returns "HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\nOK" then close.
+
+	Useful for probing
 
 # EXAMPLES
 
 Forward HTTPS:
 
 	Direct tcp forward with default settings
-	0.0.0.0:443 10.0.1.10:443 tcp
+	- listen tcp 0.0.0.0:443 tcp 10.0.1.10:443
 
 	Upstream accepts proxy protocol v2
-	0.0.0.0:443 10.0.1.10:443 tcp proxy_v2
+	- listen tcp 0.0.0.0:443 tcp 10.0.1.10:443 proxy_v2
 
-UDP route:
+Redirect UDP:
 
-	0.0.0.0:53 1.1.1.1:53 udp
+	- listen udp 0.0.0.0:53 udp 1.1.1.1:53
 
 Serve a fixed HTTP response:
 
 	$ printf 'HTTP/1.1 200 OK\\r\\nContent-Type: text/plain\\r\\nContent-Length: 14\\r\\nConnection: close\\r\\n\\r\\nhello, world!\\n' > response.http
 
-	0.0.0.0:8080 file://response.http tcp
+	- listen tcp 0.0.0.0:8080 file response.http
+
+Rule chaining:
+
+```
+Multiple rules can be chained together. This is useful for testing mixed
+endpoint paths. For example, the following setup sends a client request
+through TCP, UNIX stream sockets, more TCP hops, and finally a static file
+backend:
+
+client
+	=> tcp :14001
+	=> unix /tmp/tinyproxy-chain-4.sock
+	=> tcp 127.0.0.1:13003
+	=> tcp 127.0.0.1:13002
+	=> unix /tmp/tinyproxy-chain-1.sock
+	=> file examples/http-response.txt
+
+Configuration:
+
+listen unix /tmp/tinyproxy-chain-1.sock file examples/http-response.txt
+listen tcp  :13002                      unix /tmp/tinyproxy-chain-1.sock
+listen tcp  :13003                      tcp  127.0.0.1:13002
+listen unix /tmp/tinyproxy-chain-4.sock tcp  127.0.0.1:13003
+listen tcp  :14001                      unix /tmp/tinyproxy-chain-4.sock
+```
+
 
 # FILES
 

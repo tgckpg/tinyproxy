@@ -7,6 +7,7 @@ IGNORE='
 LOG_ERROR
 LOG_INFO
 LOG_WARN
+LOG_DEBUG
 calloc
 clock_gettime
 fclose
