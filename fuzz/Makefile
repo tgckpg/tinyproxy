@@ -28,9 +28,6 @@ COMMON_FUZZ_SRC := \
 
 all: $(BINS)
 
-$(OUT):
-	mkdir -p $(OUT)
-
 $(OUT)/fuzz_proxy_v2_build: fuzz_proxy_v2_build.c $(PROJECT_SRCS)
 	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
 		-I$(SRC_DIR) \
@@ -59,6 +56,7 @@ seed-%: FORCE
 	fi
 
 run-%: $(OUT)/fuzz_% seed-%
+	mkdir -p $(OUT)
 	$(OUT)/fuzz_$* \
 		$(CORPUS)/$* \
 		-max_total_time=$${MAX_TOTAL_TIME:-60} \

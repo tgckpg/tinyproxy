@@ -19,19 +19,19 @@ listen <listen-proto> <listen-endpoint> <backend-proto> <backend-endpoint> [opti
 # OPTIONS
 
 proxy_v2
-	Enable proxy v2 for upstream
+	Enable proxy v2 for upstream.
 	Default: false
 
 keep_alive
-	Enable keep alive for tcp
+	Enable keep alive for tcp.
 	Default: false
 
 idle_timeout=SECONDS
-	Idle timeout for both listen and upstream
+	Idle timeout for both listen and upstream.
 	Default: 60
 
 connect_timeout=SECONDS
-	Connection timeout for both listen and upstream
+	Connection timeout for both listen and upstream.
 	Default: 5
 
 # ENDPOINTS

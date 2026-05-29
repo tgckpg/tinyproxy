@@ -31,7 +31,7 @@ Run with config file:
 tinyproxy -c tinyproxy.conf
 ```
 
-check tinyproxy.conf for a more complete setup
+check example/tinyproxy.conf or use `man 5 tinyproxy` after `make install-man` for details
 
 ## Non-goals
 

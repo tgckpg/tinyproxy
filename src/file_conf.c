@@ -252,23 +252,6 @@ static inline void route_options_set_defaults(struct route_options *opts)
 	opts->connect_timeout_sec = ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC;
 }
 
-static const char *file_uri_path(const char *s)
-{
-	const char *path = s + 7; /* file:// */
-
-#ifdef _WIN32
-	/* Accept file:///C:/path as C:/path */
-	if (path[0] == '/' &&
-	    ((path[1] >= 'A' && path[1] <= 'Z') ||
-	     (path[1] >= 'a' && path[1] <= 'z')) &&
-	    path[2] == ':') {
-		path++;
-	}
-#endif
-
-	return path;
-}
-
 static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpoint *ep)
 {
 	const char *path;
@@ -290,10 +273,6 @@ static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpo
 	case PROTO_UNIX_STREAM:
 		path = s;
 
-		if (strncmp(path, "unix:", 5) == 0) {
-			path += 5;
-		}
-
 		if (path[0] == '\0' || strlen(path) >= sizeof(ep->path)) {
 			return -1;
 		}
@@ -305,10 +284,6 @@ static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpo
 	case PROTO_UNIX_DGRAM:
 		path = s;
 
-		if (strncmp(path, "unix-dgram:", 11) == 0) {
-			path += 11;
-		}
-
 		if (path[0] == '\0' || strlen(path) >= sizeof(ep->path)) {
 			return -1;
 		}
@@ -318,11 +293,7 @@ static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpo
 		return 0;
 
 	case PROTO_FILE:
-		if (strncmp(s, "file://", 7) == 0) {
-			path = file_uri_path(s);
-		} else {
-			path = s;
-		}
+		path = s;
 
 		if (path[0] == '\0') {
 			LOG_ERROR("missing file path");
@@ -343,10 +314,6 @@ static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpo
 	case PROTO_BUILTIN: {
 		enum x_builtin_upstream builtin;
 		const char *name = s;
-
-		if (strncmp(name, "builtin://", 10) == 0) {
-			name += 10;
-		}
 
 		if (name[0] == '\0' || x_builtin_parse(name, &builtin) < 0) {
 			return -1;
