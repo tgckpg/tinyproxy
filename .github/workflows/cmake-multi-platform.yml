@@ -45,10 +45,10 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic" LDFLAGS=""
+          make clean all CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic" LDFLAGS="" STATIC=1
           cp bin/tinyproxy dist/debug/tinyproxy
 
-          make clean all
+          make clean all STATIC=1
           cp bin/tinyproxy dist/prod/tinyproxy
           strip dist/prod/tinyproxy
 
@@ -151,7 +151,17 @@ jobs:
           brew install libevent haproxy
 
       - name: Build
-        run: make clean all STATIC=0
+        run: |
+          set -eu
+
+          mkdir -p dist/debug dist/prod
+
+          make clean all STATIC=0 CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic" LDFLAGS=""
+          cp bin/tinyproxy dist/debug/tinyproxy
+
+          make clean all STATIC=0
+          cp bin/tinyproxy dist/prod/tinyproxy
+          strip dist/prod/tinyproxy
 
       - *test
       - *package_name
@@ -198,8 +208,6 @@ jobs:
           else
             cp bin/tinyproxy dist/tinyproxy/tinyproxy.exe
           fi
-
-          cp tinyproxy.conf dist/tinyproxy/
 
           powershell.exe -NoProfile -Command \
             "Compress-Archive -Path dist/tinyproxy -DestinationPath tinyproxy-windows-x64.zip -Force"
