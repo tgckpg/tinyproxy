@@ -7,6 +7,7 @@ from .support import (
 	PROXY_PORT,
 	SkipTest,
 	run_tinyproxy_with_conf,
+	start_tracked_stream_server,
 )
 
 BACKPRESSURE_MAX_BYTES = 32 * 1024 * 1024
@@ -93,7 +94,7 @@ async def test_tcp_backpressure_when_upstream_does_not_read() -> None:
 		finally:
 			await abort_writer(writer)
 
-	backend_server = await asyncio.start_server(
+	backend_server = await start_tracked_stream_server(
 		blackhole_handler,
 		LISTEN_HOST,
 		BACKEND_PORT,
@@ -130,8 +131,7 @@ async def test_tcp_backpressure_when_upstream_does_not_read() -> None:
 
 		stop_backend.set()
 
-		backend_server.close()
-		await asyncio.wait_for(backend_server.wait_closed(), timeout=3.0)
+		await backend_server.close(timeout=3.0)
 
 async def test_tcp_backpressure_when_client_does_not_read() -> None:
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
@@ -180,7 +180,7 @@ async def test_tcp_backpressure_when_client_does_not_read() -> None:
 		finally:
 			await abort_writer(writer)
 
-	backend_server = await asyncio.start_server(
+	backend_server = await start_tracked_stream_server(
 		pushing_backend_handler,
 		LISTEN_HOST,
 		BACKEND_PORT,
@@ -217,8 +217,7 @@ async def test_tcp_backpressure_when_client_does_not_read() -> None:
 		if writer is not None:
 			await abort_writer(writer)
 
-		backend_server.close()
-		await asyncio.wait_for(backend_server.wait_closed(), timeout=3.0)
+		await backend_server.close(timeout=3.0)
 
 
 TESTS = [

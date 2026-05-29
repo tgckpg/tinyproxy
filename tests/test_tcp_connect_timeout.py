@@ -7,6 +7,7 @@ from .support import (
 	PROXY_PORT,
 	SkipTest,
 	run_tinyproxy_with_conf,
+	start_tracked_stream_server,
 )
 
 
@@ -102,7 +103,7 @@ async def test_tcp_connect_timeout_does_not_replace_idle_timeout_after_connect()
 		f" connect_timeout=1,idle_timeout=2\n"
 	)
 
-	backend_server = await asyncio.start_server(
+	backend_server = await start_tracked_stream_server(
 		echo_handler,
 		LISTEN_HOST,
 		BACKEND_PORT,
@@ -158,8 +159,7 @@ async def test_tcp_connect_timeout_does_not_replace_idle_timeout_after_connect()
 			finally:
 				await close_writer(writer)
 	finally:
-		backend_server.close()
-		await backend_server.wait_closed()
+		await backend_server.close()
 
 
 TESTS = [

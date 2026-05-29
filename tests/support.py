@@ -308,6 +308,88 @@ def print_process_output(name: str, proc: subprocess.Popen | None) -> None:
 		print(stderr)
 
 
+
+
+@dataclass
+class TrackedStreamServer:
+	server: asyncio.AbstractServer
+	tasks: set[asyncio.Task]
+
+	async def close(self, timeout: float = 3.0) -> None:
+		self.server.close()
+		await self.server.wait_closed()
+
+		if not self.tasks:
+			return
+
+		done, pending = await asyncio.wait(self.tasks, timeout=timeout)
+
+		for task in pending:
+			task.cancel()
+
+		if pending:
+			await asyncio.gather(*pending, return_exceptions=True)
+
+		for task in done:
+			try:
+				task.result()
+			except asyncio.CancelledError:
+				pass
+
+
+async def start_tracked_stream_server(
+	handler,
+	host: str,
+	port: int,
+	backlog: int = 128,
+) -> TrackedStreamServer:
+	tasks: set[asyncio.Task] = set()
+
+	async def tracked_handler(
+		reader: asyncio.StreamReader,
+		writer: asyncio.StreamWriter,
+	) -> None:
+		task = asyncio.current_task()
+		if task is not None:
+			tasks.add(task)
+
+		try:
+			await handler(reader, writer)
+		finally:
+			if task is not None:
+				tasks.discard(task)
+
+	server = await asyncio.start_server(
+		tracked_handler,
+		host,
+		port,
+		backlog=backlog,
+	)
+
+	return TrackedStreamServer(server=server, tasks=tasks)
+
+
+@asynccontextmanager
+async def run_tracked_stream_server(
+	handler,
+	host: str,
+	port: int,
+	backlog: int = 128,
+	close_timeout: float = 3.0,
+):
+	tracked = await start_tracked_stream_server(
+		handler,
+		host,
+		port,
+		backlog=backlog,
+	)
+
+	try:
+		yield tracked.server
+	finally:
+		await tracked.close(timeout=close_timeout)
+
+
 @dataclass
 class TinyproxyFixture:
 	proxy: subprocess.Popen
@@ -321,19 +403,14 @@ async def run_echo_backend(
 	host: str = LISTEN_HOST,
 	port: int = BACKEND_PORT,
 ):
-	server = await asyncio.start_server(
+	async with run_tracked_stream_server(
 		echo_handler,
 		host,
 		port,
 		backlog=4096,
-	)
-
-	try:
+	) as server:
 		await wait_for_port(host, port)
 		yield server
-	finally:
-		server.close()
-		await server.wait_closed()
 
 @asynccontextmanager
 async def run_tinyproxy_with_conf(

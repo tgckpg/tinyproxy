@@ -10,6 +10,7 @@
 #include "stream_conn.h"
 #include "stream_file.h"
 #include "stream_builtin.h"
+#include "stream_pipe.h"
 #include "proxy_proto_v2.h"
 
 void free_conn(conn_t *conn) {
@@ -69,19 +70,6 @@ static int set_socket_keepalive(evutil_socket_t fd, const struct route *r)
 
 	return 0;
 }
-
-#ifdef TINYPROXY_DEBUG
-static const char *bev_side(conn_t *conn, struct bufferevent *bev)
-{
-	if (bev == conn->client) {
-		return "client";
-	}
-	if (bev == conn->upstream) {
-		return "upstream";
-	}
-	return "unknown";
-}
-#endif
 
 static size_t bev_output_len(struct bufferevent *bev)
 {
@@ -238,136 +226,6 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 	}
 }
 
-static void pipe_read_cb(struct bufferevent *src, void *arg)
-{
-	conn_t *conn = arg;
-	struct bufferevent *dst;
-
-	if (src == conn->client) {
-		dst = conn->upstream;
-	} else if (src == conn->upstream) {
-		dst = conn->client;
-	} else {
-		return;
-	}
-
-	struct evbuffer *input = bufferevent_get_input(src);
-	struct evbuffer *output = bufferevent_get_output(dst);
-
-#ifdef TINYPROXY_DEBUG
-	const struct route *r = conn->route;
-
-	size_t input_len = evbuffer_get_length(input);
-	size_t output_before = evbuffer_get_length(output);
-
-	LOG_INFO("stream pipe read",
-		"line", _LOGV(r->line_no),
-		"from", _LOGV(bev_side(conn, src)),
-		"to", _LOGV(bev_side(conn, dst)),
-		"input_len", _LOGV(input_len),
-		"dst_output_before", _LOGV(output_before)
-	);
-#endif
-
-	evbuffer_add_buffer(output, input);
-
-	size_t output_after = evbuffer_get_length(output);
-
-#ifdef TINYPROXY_DEBUG
-	LOG_INFO("stream pipe queued",
-		"line", _LOGV(r->line_no),
-		"from", _LOGV(bev_side(conn, src)),
-		"to", _LOGV(bev_side(conn, dst)),
-		"dst_output_after", _LOGV(output_after)
-	);
-#endif
-
-	if (output_after >= BEV_READ_HIGH_WATER) {
-#ifdef TINYPROXY_DEBUG
-		LOG_INFO("stream pipe backpressure pause",
-			"line", _LOGV(r->line_no),
-			"paused", _LOGV(bev_side(conn, src)),
-			"dst_output_len", _LOGV(output_after)
-		);
-#endif
-
-		bufferevent_disable(src, EV_READ);
-	}
-}
-
-static void finish_client_write(conn_t *conn)
-{
-	evutil_socket_t fd = bufferevent_getfd(conn->client);
-
-	if (fd >= 0) {
-#ifndef _WIN32
-		shutdown(fd, SHUT_WR);
-#else
-		shutdown(fd, SD_SEND);
-#endif
-	}
-
-	bufferevent_disable(conn->client, EV_WRITE);
-
-	/*
-	 * Keep EV_READ enabled so we can observe client EOF instead of
-	 * closing with unread data and causing RST on some platforms.
-	 */
-	bufferevent_enable(conn->client, EV_READ);
-}
-
-static void pipe_write_cb(struct bufferevent *dst, void *arg)
-{
-	conn_t *conn = arg;
-	struct bufferevent *src;
-
-	if (dst == conn->client) {
-		src = conn->upstream;
-	} else if (dst == conn->upstream) {
-		src = conn->client;
-	} else {
-		return;
-	}
-
-	struct evbuffer *output = bufferevent_get_output(dst);
-	size_t output_len = evbuffer_get_length(output);
-
-#ifdef TINYPROXY_DEBUG
-	LOG_INFO("stream pipe write",
-		"line", _LOGV(conn->route->line_no),
-		"dst", _LOGV(bev_side(conn, dst)),
-		"src", _LOGV(bev_side(conn, src)),
-		"dst_output_len", _LOGV(output_len)
-	);
-#endif
-
-	if (dst == conn->client &&
-		conn->close_client_after_drain &&
-		output_len == 0) {
-		LOG_INFO("client output drained; shutting down write side",
-			"line", _LOGV(conn->route->line_no)
-		);
-
-		finish_client_write(conn);
-		conn->close_client_after_drain = false;
-		conn->close_after_client_eof = true;
-		return;
-	}
-
-	if (src != NULL && output_len < BEV_WRITE_RESUME_WATER) {
-#ifdef TINYPROXY_DEBUG
-		LOG_INFO("stream pipe backpressure resume",
-			"line", _LOGV(conn->route->line_no),
-			"resumed", _LOGV(bev_side(conn, src)),
-			"dst", _LOGV(bev_side(conn, dst)),
-			"dst_output_len", _LOGV(output_len)
-		);
-#endif
-
-		bufferevent_enable(src, EV_READ);
-	}
-}
-
 static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));
 	if (conn == NULL) {
@@ -416,8 +274,8 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	bufferevent_setwatermark(conn->client, EV_READ, 0, BEV_READ_HIGH_WATER);
 	bufferevent_setwatermark(conn->upstream, EV_READ, 0, BEV_READ_HIGH_WATER);
 
-	bufferevent_setcb(conn->client, pipe_read_cb, pipe_write_cb, event_cb, conn);
-	bufferevent_setcb(conn->upstream, pipe_read_cb, pipe_write_cb, event_cb, conn);
+	bufferevent_setcb(conn->client, pipe_client_read_cb, pipe_client_write_cb, event_cb, conn);
+	bufferevent_setcb(conn->upstream, pipe_upstream_read_cb, pipe_upstream_write_cb, event_cb, conn);
 
 	/*
 	 * Do not read from the client yet.

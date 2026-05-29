@@ -8,6 +8,8 @@ from .support import (
 	LISTEN_HOST,
 	BACKEND_PORT,
 	SkipTest,
+	echo_handler,
+	start_tracked_stream_server,
 	run_tinyproxy_with_conf,
 )
 
@@ -40,20 +42,6 @@ def unlink_if_exists(path: str) -> None:
 		os.unlink(path)
 	except FileNotFoundError:
 		pass
-
-async def echo_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-	try:
-		while True:
-			data = await reader.read(65536)
-			if not data:
-				break
-
-			writer.write(data)
-			await writer.drain()
-	finally:
-		writer.close()
-		await writer.wait_closed()
-
 
 async def close_writer(writer: asyncio.StreamWriter) -> None:
 	try:
@@ -187,7 +175,7 @@ async def run_stream_chain_roundtrip(
 	for path in socks_to_cleanup:
 		unlink_if_exists(path)
 
-	backend_server = await asyncio.start_server(
+	backend_server = await start_tracked_stream_server(
 		echo_handler,
 		LISTEN_HOST,
 		BACKEND_PORT,
@@ -203,8 +191,7 @@ async def run_stream_chain_roundtrip(
 		):
 			return await tcp_roundtrip(LISTEN_HOST, front_port, payload)
 	finally:
-		backend_server.close()
-		await backend_server.wait_closed()
+		await backend_server.close()
 
 		for path in socks_to_cleanup:
 			unlink_if_exists(path)

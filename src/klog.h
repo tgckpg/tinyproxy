@@ -105,4 +105,12 @@ static inline struct log_value log_value_endpoint(const struct endpoint *v)
 #define LOG_WARN(msg, ...)  log_at('W', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
 #define LOG_ERROR(msg, ...) log_at('E', __FILE__, __LINE__, (msg), ##__VA_ARGS__, NULL)
 
+#ifdef TINYPROXY_DEBUG
+#define LOG_DEBUG(msg, ...) \
+	LOG_INFO((msg), __VA_ARGS__)
+#else
+#define LOG_DEBUG(msg, ...) \
+	do { } while (0)
+#endif
+
 #endif
