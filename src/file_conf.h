@@ -7,7 +7,15 @@
 #include "route.h"
 
 int parse_route_line(char *line, struct route *route);
+
+int load_routes_from_text(
+	const char *name,
+	const char *data,
+	size_t data_len,
+	struct route **routes_out,
+	size_t *count_out
+);
+
 int load_routes_from_file(const char *path, struct route **routes_out, size_t *count_out);
-void free_routes(struct route *routes);
 
 #endif

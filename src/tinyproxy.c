@@ -46,12 +46,9 @@ int main(int argc, char **argv)
 {
 	prevent_socket_write_from_killing_process();
 
-	const char *conf_path = "tinyproxy.conf";
 	int opt;
 	int exit_code = 1;
 	int rc;
-
-	int conf_path_set = 0;
 
 	const char **inline_routes = NULL;
 	size_t inline_route_count = 0;
@@ -61,6 +58,7 @@ int main(int argc, char **argv)
 	int wsa_started = 0;
 #endif
 
+	const char *conf_path = NULL;
 	struct route *routes = NULL;
 	size_t route_count = 0;
 
@@ -80,7 +78,6 @@ int main(int argc, char **argv)
 					return 2;
 				}
 				conf_path = optarg;
-				conf_path_set = 1;
 				break;
 
 			case 'L':
@@ -126,7 +123,13 @@ int main(int argc, char **argv)
 		}
 	}
 
-	if (conf_path_set && inline_route_count > 0) {
+	if(conf_path == NULL && inline_route_count == 0) {
+		usage(stdout, argv[0]);
+		free(inline_routes);
+		return 0;
+	}
+
+	if (conf_path && inline_route_count > 0) {
 		LOG_ERROR("-c and -L cannot be used together");
 		usage(stderr, argv[0]);
 		free(inline_routes);
@@ -269,7 +272,7 @@ out:
 		event_base_free(base);
 	}
 
-	free_routes(routes);
+	free(routes);
 	free(inline_routes);
 
 #ifdef _WIN32

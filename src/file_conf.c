@@ -7,8 +7,8 @@
 #include <limits.h>
 
 #include "klog.h"
-#include "file_conf.h"
 #include "endpoint.h"
+#include "file_conf.h"
 
 #define MAX_LINE_LEN 512
 #define MAX_ROUTE_FIELDS 32
@@ -45,6 +45,43 @@ static int parse_port(const char *s, uint16_t *out)
 
 	*out = (uint16_t)v;
 	return 0;
+}
+
+static bool same_listen_endpoint(
+	const struct endpoint *a,
+	const struct endpoint *b
+) {
+	if (a->proto != b->proto) {
+		return false;
+	}
+
+	switch (a->proto) {
+	case PROTO_TCP:
+	case PROTO_UDP:
+		return strcmp(a->host, b->host) == 0 &&
+			a->port == b->port;
+
+	case PROTO_UNIX_STREAM:
+	case PROTO_UNIX_DGRAM:
+		return strcmp(a->path, b->path) == 0;
+
+	default:
+		return false;
+	}
+}
+
+static int find_conflicting_route(
+	const struct route *routes,
+	size_t count,
+	const struct route *new_route
+) {
+	for (size_t i = 0; i < count; i++) {
+		if (same_listen_endpoint(&routes[i].listen, &new_route->listen)) {
+			return (int)i;
+		}
+	}
+
+	return -1;
 }
 
 static int split_host_port(const char *input,
@@ -394,29 +431,57 @@ int parse_route_line(char *line, struct route *route)
 	return 0;
 }
 
-int load_routes_from_file(const char *path, struct route **routes_out, size_t *count_out)
-{
-	FILE *fp = fopen(path, "r");
-	if (!fp) {
-		return -errno;
-	}
-
+int load_routes_from_text(
+	const char *name,
+	const char *data,
+	size_t data_len,
+	struct route **routes_out,
+	size_t *count_out
+) {
 	struct route *routes = NULL;
 	size_t count = 0;
 	size_t cap = 0;
 
-	char buf[MAX_LINE_LEN];
+	size_t pos = 0;
 	unsigned int line_no = 0;
 
-	while (fgets(buf, sizeof(buf), fp)) {
+	*routes_out = NULL;
+	*count_out = 0;
+
+	while (pos < data_len) {
 		line_no++;
 
-		// Reject overlong lines.
-		if (!strchr(buf, '\n') && !feof(fp)) {
-			fclose(fp);
+		const char *line_start = data + pos;
+		const void *nlp = memchr(line_start, '\n', data_len - pos);
+
+		size_t raw_len;
+		if (nlp) {
+			raw_len = (const char *)nlp - line_start;
+			pos += raw_len + 1;
+		} else {
+			raw_len = data_len - pos;
+			pos = data_len;
+		}
+
+		/* Handle CRLF input nicely. */
+		if (raw_len > 0 && line_start[raw_len - 1] == '\r') {
+			raw_len--;
+		}
+
+		/*
+		 * Need room for NUL.
+		 *
+		 * This keeps the same basic safety property as the fgets()
+		 * version: no parser call ever sees an overlarge line.
+		 */
+		if (raw_len >= MAX_LINE_LEN) {
 			free(routes);
 			return -E2BIG;
 		}
+
+		char buf[MAX_LINE_LEN];
+		memcpy(buf, line_start, raw_len);
+		buf[raw_len] = '\0';
 
 		char *line = trim(buf);
 
@@ -424,7 +489,7 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 			continue;
 		}
 
-		// Strip inline comments.
+		/* Strip inline comments. */
 		char *hash = strchr(line, '#');
 		if (hash) {
 			*hash = '\0';
@@ -436,9 +501,14 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 
 		if (count == cap) {
 			size_t new_cap = cap ? cap * 2 : 8;
+
+			if (new_cap > SIZE_MAX / sizeof(*routes)) {
+				free(routes);
+				return -EOVERFLOW;
+			}
+
 			struct route *new_routes = realloc(routes, new_cap * sizeof(*routes));
 			if (!new_routes) {
-				fclose(fp);
 				free(routes);
 				return -ENOMEM;
 			}
@@ -453,26 +523,35 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 		struct route *r = &routes[count];
 		if (parse_route_line(line, r) != 0) {
 			LOG_ERROR("invalid route config",
-					"path", _LOGV(path),
-					"line", _LOGV(line_no),
-					"text", _LOGV(original));
-			fclose(fp);
+				"name", _LOGV(name ? name : "<memory>"),
+				"line", _LOGV(line_no),
+				"text", _LOGV(original)
+			);
+
 			free(routes);
 			return -EINVAL;
 		}
 
 		r->line_no = line_no;
+
+		int conflict_idx = find_conflicting_route(routes, count, r);
+		if (conflict_idx >= 0) {
+			const struct route *old = &routes[conflict_idx];
+
+			LOG_ERROR("conflicting route config",
+				"name", _LOGV(name ? name : "<memory>"),
+				"line", _LOGV(line_no),
+				"conflicts_with_line", _LOGV(old->line_no),
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"text", _LOGV(original)
+			);
+
+			free(routes);
+			return -EADDRINUSE;
+		}
+
 		count++;
 	}
-
-	if (ferror(fp)) {
-		int err = errno;
-		fclose(fp);
-		free(routes);
-		return -err;
-	}
-
-	fclose(fp);
 
 	*routes_out = routes;
 	*count_out = count;
@@ -480,7 +559,60 @@ int load_routes_from_file(const char *path, struct route **routes_out, size_t *c
 	return 0;
 }
 
-void free_routes(struct route *routes)
+int load_routes_from_file(const char *path, struct route **routes_out, size_t *count_out)
 {
-	free(routes);
+	FILE *fp = fopen(path, "rb");
+	if (!fp) {
+		return -errno;
+	}
+
+	if (fseek(fp, 0, SEEK_END) != 0) {
+		int err = errno;
+		fclose(fp);
+		return -err;
+	}
+
+	long file_size = ftell(fp);
+	if (file_size < 0) {
+		int err = errno;
+		fclose(fp);
+		return -err;
+	}
+
+	if (fseek(fp, 0, SEEK_SET) != 0) {
+		int err = errno;
+		fclose(fp);
+		return -err;
+	}
+
+	char *data = NULL;
+
+	if (file_size > 0) {
+		data = malloc((size_t)file_size);
+		if (!data) {
+			fclose(fp);
+			return -ENOMEM;
+		}
+
+		size_t nread = fread(data, 1, (size_t)file_size, fp);
+		if (nread != (size_t)file_size) {
+			int err = ferror(fp) ? errno : EIO;
+			free(data);
+			fclose(fp);
+			return -err;
+		}
+	}
+
+	fclose(fp);
+
+	int rc = load_routes_from_text(
+		path,
+		data ? data : "",
+		(size_t)file_size,
+		routes_out,
+		count_out
+	);
+
+	free(data);
+	return rc;
 }

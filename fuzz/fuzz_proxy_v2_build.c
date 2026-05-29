@@ -4,7 +4,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-#include "../src/proxy_proto_v2.h"
+#include "proxy_proto_v2.h"
 
 static uint16_t read_u16(const uint8_t *p)
 {

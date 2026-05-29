@@ -31,25 +31,17 @@ all: $(BINS)
 $(OUT):
 	mkdir -p $(OUT)
 
-$(OUT)/fuzz_proxy_v2_build: \
-	fuzz_proxy_v2_build.c \
-	$(SRC_DIR)/proxy_proto_v2.c \
-	| $(OUT)
+$(OUT)/fuzz_proxy_v2_build: fuzz_proxy_v2_build.c $(PROJECT_SRCS)
 	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
-		$(SRC_DIR)/proxy_proto_v2.c \
-		fuzz_proxy_v2_build.c \
+		-I$(SRC_DIR) \
+		$^ \
 		-o $@ \
 		$(LDFLAGS) $(FUZZ_LDFLAGS) $(LDLIBS)
 
-$(OUT)/fuzz_file_conf: \
-	fuzz_file_conf.c \
-	$(SRC_DIR)/file_conf.c \
-	$(SRC_DIR)/klog.c \
-	| $(OUT)
+$(OUT)/fuzz_file_conf: fuzz_file_conf.c $(PROJECT_SRCS)
 	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
-		$(SRC_DIR)/file_conf.c \
-		$(SRC_DIR)/klog.c \
-		fuzz_file_conf.c \
+		-I$(SRC_DIR) \
+		$^ \
 		-o $@ \
 		$(LDFLAGS) $(FUZZ_LDFLAGS) $(LDLIBS)
 

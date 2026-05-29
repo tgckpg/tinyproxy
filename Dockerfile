@@ -18,12 +18,10 @@ RUN --mount=type=cache,target=/var/cache/apk,sharing=locked \
 COPY tests ./tests
 RUN make test STATIC=1
 
-RUN cp /build/tinyproxy.conf /etc/ && cp /build/bin/tinyproxy /usr/bin/
+RUN cp /build/bin/tinyproxy /usr/bin/
 
 FROM scratch
 
 COPY --from=build /build/bin/tinyproxy /usr/bin/tinyproxy
-COPY --from=build /build/tinyproxy.conf /etc/tinyproxy.conf
 
 ENTRYPOINT ["/usr/bin/tinyproxy"]
-CMD ["-c", "/etc/tinyproxy.conf"]
