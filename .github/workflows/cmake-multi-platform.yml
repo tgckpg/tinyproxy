@@ -256,9 +256,23 @@ jobs:
 
           tag="${GITHUB_REF_NAME}"
 
+          body_file="$(mktemp)"
+
+          if printf '%s\n' "$tag" | grep -Eq '^v0\.'; then
+            cat > "$body_file" <<'EOF'
+          > [!WARNING]
+          > This is an experimental v0.x release.
+          >
+          > APIs, config formats, behavior, and compatibility may change without notice.
+          EOF
+          else
+            : > "$body_file"
+          fi
+
           if ! gh release view "$tag" >/dev/null 2>&1; then
             gh release create "$tag" \
               --title "$tag" \
+              --notes-file "$body_file" \
               --generate-notes
           fi
 
