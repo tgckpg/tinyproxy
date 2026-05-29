@@ -2,6 +2,7 @@ import asyncio
 import os
 import socket
 import sys
+import tempfile
 
 from .support import (
 	LISTEN_HOST,
@@ -10,24 +11,33 @@ from .support import (
 	run_tinyproxy_with_conf,
 )
 
+def unix_sock_path(name):
+	from pathlib import Path
 
-UNIX_STREAM_SOCK = "/tmp/test-listen.sock"
-UNIX_BUILTIN_SOCK = "/tmp/test-listen-2.sock"
-UNIX_DGRAM_SOCK = "/tmp/test-listen-dgram.sock"
-UNIX_DGRAM_BUILTIN_SOCK = "/tmp/test-listen-3.sock"
+	if sys.platform == "win32":
+		d = Path("C:/tmp/tinyproxy-tests")
+		d.mkdir(parents=True, exist_ok=True)
+		return str(d / name).replace("\\", "/")
 
-UNIX_TO_UNIX_LISTEN_SOCK = "/tmp/test-ping.sock"
-UNIX_TO_UNIX_BACKEND_SOCK = "/tmp/test-pong.sock"
+	d = tempfile.mkdtemp(prefix="tinyproxy-")
+	return os.path.join(d, name)
 
-UNIX_DGRAM_TO_UNIX_DGRAM_LISTEN_SOCK = "/tmp/test-ping-dgram.sock"
-UNIX_DGRAM_TO_UNIX_DGRAM_BACKEND_SOCK = "/tmp/test-pong-dgram.sock"
+UNIX_STREAM_SOCK = unix_sock_path("test-listen.sock")
+UNIX_BUILTIN_SOCK = unix_sock_path("test-listen-2.sock")
+UNIX_DGRAM_SOCK = unix_sock_path("test-listen-dgram.sock")
+UNIX_DGRAM_BUILTIN_SOCK = unix_sock_path("test-listen-3.sock")
+
+UNIX_TO_UNIX_LISTEN_SOCK = unix_sock_path("test-ping.sock")
+UNIX_TO_UNIX_BACKEND_SOCK = unix_sock_path("test-pong.sock")
+
+UNIX_DGRAM_TO_UNIX_DGRAM_LISTEN_SOCK = unix_sock_path("test-ping-dgram.sock")
+UNIX_DGRAM_TO_UNIX_DGRAM_BACKEND_SOCK = unix_sock_path("test-pong-dgram.sock")
 
 def unlink_if_exists(path: str) -> None:
 	try:
 		os.unlink(path)
 	except FileNotFoundError:
 		pass
-
 
 async def echo_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
 	try:
@@ -88,8 +98,6 @@ def unix_dgram_roundtrip(sock_path: str, payload: bytes) -> bytes:
 
 
 async def test_unix_stream_to_tcp() -> None:
-	if sys.platform.startswith("win"):
-		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -138,8 +146,6 @@ async def test_unix_stream_to_tcp() -> None:
 
 
 async def test_unix_stream_to_builtin_client_addr() -> None:
-	if sys.platform.startswith("win"):
-		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
@@ -238,8 +244,6 @@ async def test_unix_dgram_to_builtin_client_addr() -> None:
 		unlink_if_exists(UNIX_DGRAM_BUILTIN_SOCK)
 
 async def test_unix_stream_to_unix_stream() -> None:
-	if sys.platform.startswith("win"):
-		raise SkipTest("Unix socks tests are skipped on Windows")
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")

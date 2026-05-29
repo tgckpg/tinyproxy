@@ -9,6 +9,7 @@
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <afunix.h>
 #include <process.h>
 #include <direct.h>
 #include <errno.h>
@@ -24,6 +25,12 @@
 #include <netinet/in.h>
 #include <unistd.h>
 
+#endif
+
+#ifdef _WIN32
+#define compat_unlink(path) _unlink(path)
+#else
+#define compat_unlink(path) unlink(path)
 #endif
 
 static inline int socket_err_is_retriable(int err)

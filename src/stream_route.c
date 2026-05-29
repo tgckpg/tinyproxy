@@ -4,6 +4,7 @@
 
 #include "klog.h"
 #include "stream_route.h"
+#include "compat.h"
 #include "worker.h"
 #include "route.h"
 #include "stream_listener.h"
@@ -39,12 +40,10 @@ int start_stream_route(struct worker *w, const struct route *r,
 	return 0;
 }
 
-#ifndef _WIN32
 static void stop_unix_stream_route(struct stream_route_ctx *ctx)
 {
 	const struct route *r;
 	const char *path;
-	struct stat st;
 
 	if (ctx == NULL || ctx->route == NULL) {
 		return;
@@ -60,6 +59,9 @@ static void stop_unix_stream_route(struct stream_route_ctx *ctx)
 	if (path[0] == '\0') {
 		return;
 	}
+
+#ifndef _WIN32
+	struct stat st;
 
 	if (lstat(path, &st) < 0) {
 		if (errno != ENOENT) {
@@ -77,15 +79,15 @@ static void stop_unix_stream_route(struct stream_route_ctx *ctx)
 			"path", _LOGV(path));
 		return;
 	}
+#endif
 
-	if (unlink(path) < 0) {
+	if (compat_unlink(path) < 0 && errno != ENOENT) {
 		LOG_WARN("failed to remove unix stream listener socket",
 			"line", _LOGV(r->line_no),
 			"path", _LOGV(path),
 			"err", _LOGV(strerror(errno)));
 	}
 }
-#endif
 
 void stop_stream_route(struct stream_route_ctx *ctx)
 {
@@ -97,9 +99,7 @@ void stop_stream_route(struct stream_route_ctx *ctx)
 		evconnlistener_free(ctx->listener);
 	}
 
-#ifndef _WIN32
 	stop_unix_stream_route(ctx);
-#endif
 
 	memset(ctx, 0, sizeof(*ctx));
 }

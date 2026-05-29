@@ -130,9 +130,6 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 	}
 
 	case ENDPOINT_UNIX:
-#ifdef _WIN32
-		return -ENOTSUP;
-#else
 	{
 		struct sockaddr_un addr;
 
@@ -158,7 +155,6 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 
 		return 0;
 	}
-#endif
 
 	default:
 		return -ENOTSUP;

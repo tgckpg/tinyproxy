@@ -80,13 +80,6 @@ static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 	return 0;
 }
 
-#ifdef _WIN32
-static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
-{
-	(void)ctx;
-	return -EAFNOSUPPORT;
-}
-#else
 static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 {
 	const struct endpoint *ep = &ctx->route->listen;
@@ -113,17 +106,14 @@ static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 
 	memcpy(sa.sun_path, path, strlen(path) + 1);
 
-	/*
-	 * For listener sockets, stale socket files are common after crashes.
-	 * This is safe enough for our config-driven proxy: if the path exists
-	 * and is not ours, bind() would fail without this anyway.
-	 */
-	if (unlink(path) < 0 && errno != ENOENT) {
+	if (compat_unlink(path) < 0 && errno != ENOENT) {
+		int err = errno;
+
 		LOG_ERROR("failed to remove existing unix stream socket",
 			"line", _LOGV(ctx->route->line_no),
 			"path", _LOGV(path),
-			"err", _LOGV(strerror(errno)));
-		return -errno;
+			"err", _LOGV(strerror(err)));
+		return -err;
 	}
 
 	listener = evconnlistener_new_bind(
@@ -135,21 +125,31 @@ static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 		(struct sockaddr *)&sa,
 		sizeof(sa)
 	);
+
 	if (listener == NULL) {
-		int err = errno;
+		int sockerr = EVUTIL_SOCKET_ERROR();
+		int syserr = errno;
 
 		LOG_ERROR("failed to bind unix stream listener",
-			"line", _LOGV(ctx->route->line_no),
-			"path", _LOGV(path),
-			"err", _LOGV(strerror(err)));
+				"line", _LOGV(ctx->route->line_no),
+				"path", _LOGV(path),
+				"sockerr", _LOGV(sockerr),
+				"sockerrstr", _LOGV(evutil_socket_error_to_string(sockerr)),
+				"errno", _LOGV(syserr),
+				"errnostr", _LOGV(strerror(syserr)));
 
-		return err ? -err : -EIO;
+		if (sockerr != 0) {
+			return -sockerr;
+		}
+		if (syserr != 0) {
+			return -syserr;
+		}
+		return -EIO;
 	}
 
 	ctx->listener = listener;
 	return 0;
 }
-#endif
 
 int bind_stream_listener(struct stream_route_ctx *ctx)
 {
