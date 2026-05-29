@@ -19,7 +19,7 @@ EXEEXT := .exe
 WINDOWS_LDLIBS += -lws2_32
 endif
 
-CFLAGS ?= -Os -Wall -Wextra -ffunction-sections -fdata-sections
+CFLAGS ?= -O2 -DNDEBUG -Wall -Wextra -ffunction-sections -fdata-sections
 CPPFLAGS += -I$(SRC_DIR)
 
 UNAME_S := $(shell uname)

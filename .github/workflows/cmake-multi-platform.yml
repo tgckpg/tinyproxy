@@ -39,17 +39,40 @@ jobs:
 
       - &build_static
         name: Build
-        run: make clean all
+        shell: sh
+        run: |
+          set -eu
+
+          mkdir -p dist/debug dist/prod
+
+          make clean all CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic" LDFLAGS=""
+          cp bin/tinyproxy dist/debug/tinyproxy
+
+          make clean all
+          cp bin/tinyproxy dist/prod/tinyproxy
+          strip dist/prod/tinyproxy
 
       - &verify_static
         name: Verify static binary
+        shell: sh
         run: |
-          apk add --no-cache pax-utils
-          file bin/tinyproxy
-          scanelf -n bin/tinyproxy
+          set -eu
 
-          if scanelf -n bin/tinyproxy | grep -q 'lib'; then
-            echo "binary has dynamic library dependencies"
+          apk add --no-cache pax-utils
+
+          file dist/prod/tinyproxy
+          scanelf -n dist/prod/tinyproxy
+
+          if scanelf -n dist/prod/tinyproxy | grep -q 'lib'; then
+            echo "prod binary has dynamic library dependencies"
+            exit 1
+          fi
+
+          file dist/debug/tinyproxy
+          scanelf -n dist/debug/tinyproxy
+
+          if scanelf -n dist/debug/tinyproxy | grep -q 'lib'; then
+            echo "debug binary has dynamic library dependencies"
             exit 1
           fi
 
@@ -71,17 +94,25 @@ jobs:
         shell: sh
         run: |
           mkdir -p dist/tinyproxy
-          cp bin/tinyproxy dist/tinyproxy/
-          cp tinyproxy.conf dist/tinyproxy/
+          cp dist/prod/tinyproxy dist/tinyproxy/
+          cp -r examples dist/tinyproxy/
 
           tar -C dist -czf "${TINYPROXY_PACKAGE}.tar.gz" tinyproxy
 
+          mkdir -p dist/tinyproxy-debug
+          cp dist/debug/tinyproxy dist/tinyproxy-debug/
+          cp -r examples dist/tinyproxy-debug/
+
+          tar -C dist -czf "${TINYPROXY_PACKAGE}-debug.tar.gz" tinyproxy-debug
+
       - &upload_unix
-        name: Upload artifact
+        name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.TINYPROXY_PACKAGE }}
-          path: ${{ env.TINYPROXY_PACKAGE }}.tar.gz
+          path: |
+            ${{ env.TINYPROXY_PACKAGE }}.tar.gz
+            ${{ env.TINYPROXY_PACKAGE }}-debug.tar.gz
           if-no-files-found: error
           retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
 
@@ -280,10 +311,8 @@ jobs:
           mkdir -p rootfs-arm64/usr/bin rootfs-arm64/etc
 
           cp tmp/amd64/tinyproxy/tinyproxy rootfs-amd64/usr/bin/tinyproxy
-          cp tmp/amd64/tinyproxy/tinyproxy.conf rootfs-amd64/etc/tinyproxy.conf
 
           cp tmp/arm64/tinyproxy/tinyproxy rootfs-arm64/usr/bin/tinyproxy
-          cp tmp/arm64/tinyproxy/tinyproxy.conf rootfs-arm64/etc/tinyproxy.conf
 
           chmod 0755 rootfs-amd64/usr/bin/tinyproxy
           chmod 0755 rootfs-arm64/usr/bin/tinyproxy
