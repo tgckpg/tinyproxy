@@ -45,7 +45,7 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic" LDFLAGS="" STATIC=1
+          make clean all STATIC=1 CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic"
           cp bin/tinyproxy dist/debug/tinyproxy
 
           make clean all STATIC=1
@@ -147,8 +147,8 @@ jobs:
 
       - name: Install deps
         run: |
-          brew update
-          brew install libevent haproxy
+          brew list libevent >/dev/null 2>&1 || brew install libevent
+          brew list haproxy >/dev/null 2>&1 || brew install haproxy
 
       - name: Build
         run: |
