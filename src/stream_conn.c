@@ -70,7 +70,48 @@ static int set_socket_keepalive(evutil_socket_t fd, const struct route *r)
 	return 0;
 }
 
-void event_cb(struct bufferevent *bev, short events, void *arg) {
+#ifdef TINYPROXY_DEBUG
+static const char *bev_side(conn_t *conn, struct bufferevent *bev)
+{
+	if (bev == conn->client) {
+		return "client";
+	}
+	if (bev == conn->upstream) {
+		return "upstream";
+	}
+	return "unknown";
+}
+#endif
+
+static size_t bev_output_len(struct bufferevent *bev)
+{
+	if (bev == NULL) {
+		return 0;
+	}
+
+	return evbuffer_get_length(bufferevent_get_output(bev));
+}
+
+static bool client_has_pending_output(conn_t *conn)
+{
+	return conn->client != NULL && bev_output_len(conn->client) > 0;
+}
+
+static void drain_client_then_close(conn_t *conn)
+{
+	conn->close_client_after_drain = true;
+
+	if (conn->upstream != NULL) {
+		bufferevent_disable(conn->upstream, EV_READ | EV_WRITE);
+	}
+
+	if (!client_has_pending_output(conn)) {
+		free_conn(conn);
+	}
+}
+
+void event_cb(struct bufferevent *bev, short events, void *arg)
+{
 	conn_t *conn = arg;
 
 	if (events & BEV_EVENT_CONNECTED) {
@@ -87,18 +128,54 @@ void event_cb(struct bufferevent *bev, short events, void *arg) {
 		return;
 	}
 
-	if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-		if (events & BEV_EVENT_ERROR) {
-			int err = EVUTIL_SOCKET_ERROR();
-			LOG_ERROR("connection error",
-				"err", _LOGV(evutil_socket_error_to_string(err))
+	if (events & BEV_EVENT_ERROR) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		if (bev == conn->client &&
+			conn->close_after_client_eof &&
+			err == ECONNRESET) {
+			LOG_INFO("client reset after response drain");
+			free_conn(conn);
+			return;
+		}
+
+		LOG_ERROR("connection error",
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+
+		if (bev == conn->upstream && client_has_pending_output(conn)) {
+			const struct route *r = conn->route;
+
+			LOG_WARN("upstream error after response queued; draining client",
+				"err", _LOGV(evutil_socket_error_to_string(err)),
+				"client_output", _LOGV(bev_output_len(conn->client)),
+				"upstream_output", _LOGV(bev_output_len(conn->upstream)),
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream)
 			);
+
+			drain_client_then_close(conn);
+			return;
 		}
 
 		free_conn(conn);
+		return;
 	}
 
-	(void)bev;
+	if (events & BEV_EVENT_EOF) {
+		if (bev == conn->client && conn->close_after_client_eof) {
+			free_conn(conn);
+			return;
+		}
+
+		if (bev == conn->upstream && client_has_pending_output(conn)) {
+			drain_client_then_close(conn);
+			return;
+		}
+
+		free_conn(conn);
+		return;
+	}
 }
 
 static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
@@ -177,11 +254,66 @@ static void pipe_read_cb(struct bufferevent *src, void *arg)
 	struct evbuffer *input = bufferevent_get_input(src);
 	struct evbuffer *output = bufferevent_get_output(dst);
 
+#ifdef TINYPROXY_DEBUG
+	const struct route *r = conn->route;
+
+	size_t input_len = evbuffer_get_length(input);
+	size_t output_before = evbuffer_get_length(output);
+
+	LOG_INFO("stream pipe read",
+		"line", _LOGV(r->line_no),
+		"from", _LOGV(bev_side(conn, src)),
+		"to", _LOGV(bev_side(conn, dst)),
+		"input_len", _LOGV(input_len),
+		"dst_output_before", _LOGV(output_before)
+	);
+#endif
+
 	evbuffer_add_buffer(output, input);
 
-	if (evbuffer_get_length(output) >= BEV_READ_HIGH_WATER) {
+	size_t output_after = evbuffer_get_length(output);
+
+#ifdef TINYPROXY_DEBUG
+	LOG_INFO("stream pipe queued",
+		"line", _LOGV(r->line_no),
+		"from", _LOGV(bev_side(conn, src)),
+		"to", _LOGV(bev_side(conn, dst)),
+		"dst_output_after", _LOGV(output_after)
+	);
+#endif
+
+	if (output_after >= BEV_READ_HIGH_WATER) {
+#ifdef TINYPROXY_DEBUG
+		LOG_INFO("stream pipe backpressure pause",
+			"line", _LOGV(r->line_no),
+			"paused", _LOGV(bev_side(conn, src)),
+			"dst_output_len", _LOGV(output_after)
+		);
+#endif
+
 		bufferevent_disable(src, EV_READ);
 	}
+}
+
+static void finish_client_write(conn_t *conn)
+{
+	evutil_socket_t fd = bufferevent_getfd(conn->client);
+
+	if (fd >= 0) {
+#ifndef _WIN32
+		shutdown(fd, SHUT_WR);
+#else
+		shutdown(fd, SD_SEND);
+#endif
+	}
+
+	bufferevent_disable(conn->client, EV_WRITE);
+
+	/*
+	 * Keep EV_READ enabled so we can observe client EOF instead of
+	 * closing with unread data and causing RST on some platforms.
+	 */
+	bufferevent_enable(conn->client, EV_READ);
 }
 
 static void pipe_write_cb(struct bufferevent *dst, void *arg)
@@ -198,12 +330,43 @@ static void pipe_write_cb(struct bufferevent *dst, void *arg)
 	}
 
 	struct evbuffer *output = bufferevent_get_output(dst);
+	size_t output_len = evbuffer_get_length(output);
 
-	if (evbuffer_get_length(output) < BEV_WRITE_RESUME_WATER) {
+#ifdef TINYPROXY_DEBUG
+	LOG_INFO("stream pipe write",
+		"line", _LOGV(conn->route->line_no),
+		"dst", _LOGV(bev_side(conn, dst)),
+		"src", _LOGV(bev_side(conn, src)),
+		"dst_output_len", _LOGV(output_len)
+	);
+#endif
+
+	if (dst == conn->client &&
+		conn->close_client_after_drain &&
+		output_len == 0) {
+		LOG_INFO("client output drained; shutting down write side",
+			"line", _LOGV(conn->route->line_no)
+		);
+
+		finish_client_write(conn);
+		conn->close_client_after_drain = false;
+		conn->close_after_client_eof = true;
+		return;
+	}
+
+	if (src != NULL && output_len < BEV_WRITE_RESUME_WATER) {
+#ifdef TINYPROXY_DEBUG
+		LOG_INFO("stream pipe backpressure resume",
+			"line", _LOGV(conn->route->line_no),
+			"resumed", _LOGV(bev_side(conn, src)),
+			"dst", _LOGV(bev_side(conn, dst)),
+			"dst_output_len", _LOGV(output_len)
+		);
+#endif
+
 		bufferevent_enable(src, EV_READ);
 	}
 }
-
 
 static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));

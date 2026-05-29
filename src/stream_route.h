@@ -28,6 +28,9 @@ typedef struct conn_s {
 
 	struct sockaddr_storage peer_addr;
 	socklen_t peer_addr_len;
+
+	bool close_after_client_eof;
+	bool close_client_after_drain;
 } conn_t;
 
 struct accepted_client {

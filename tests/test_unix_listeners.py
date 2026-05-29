@@ -33,6 +33,8 @@ UNIX_TO_UNIX_BACKEND_SOCK = unix_sock_path("test-pong.sock")
 UNIX_DGRAM_TO_UNIX_DGRAM_LISTEN_SOCK = unix_sock_path("test-ping-dgram.sock")
 UNIX_DGRAM_TO_UNIX_DGRAM_BACKEND_SOCK = unix_sock_path("test-pong-dgram.sock")
 
+FRONT_PORT = BACKEND_PORT + 1
+
 def unlink_if_exists(path: str) -> None:
 	try:
 		os.unlink(path)
@@ -59,44 +61,6 @@ async def close_writer(writer: asyncio.StreamWriter) -> None:
 		await writer.wait_closed()
 	except ConnectionResetError:
 		pass
-
-
-async def open_unix_connection(path: str):
-	return await asyncio.open_unix_connection(path)
-
-def unix_stream_roundtrip_sync(path: str, payload: bytes) -> bytes:
-	with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-		s.settimeout(3.0)
-		s.connect(path)
-		s.sendall(payload)
-
-		chunks = []
-		remaining = len(payload)
-
-		while remaining > 0:
-			data = s.recv(remaining)
-			if not data:
-				break
-			chunks.append(data)
-			remaining -= len(data)
-
-		return b"".join(chunks)
-
-
-async def unix_stream_roundtrip(path: str, payload: bytes) -> bytes:
-	return await asyncio.to_thread(unix_stream_roundtrip_sync, path, payload)
-
-
-def unix_stream_read_sync(path: str) -> bytes:
-	with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
-		s.settimeout(3.0)
-		s.connect(path)
-		return s.recv(65536)
-
-
-async def unix_stream_read(path: str) -> bytes:
-	return await asyncio.to_thread(unix_stream_read_sync, path)
-
 
 async def udp_echo_server(host: str, port: int):
 	loop = asyncio.get_running_loop()
@@ -128,77 +92,6 @@ def unix_dgram_roundtrip(sock_path: str, payload: bytes) -> bytes:
 	finally:
 		client.close()
 		unlink_if_exists(client_path)
-
-
-async def test_unix_stream_to_tcp() -> None:
-	proxy_bin = os.environ.get("TINYPROXY_BIN")
-	if not proxy_bin:
-		raise SkipTest("TINYPROXY_BIN is not set")
-
-	unlink_if_exists(UNIX_STREAM_SOCK)
-
-	conf_text = (
-		f"listen unix {UNIX_STREAM_SOCK} tcp {LISTEN_HOST}:{BACKEND_PORT}\n"
-	)
-
-	backend_server = await asyncio.start_server(
-		echo_handler,
-		LISTEN_HOST,
-		BACKEND_PORT,
-		backlog=128,
-	)
-
-	try:
-		async with run_tinyproxy_with_conf(
-			proxy_bin=proxy_bin,
-			conf_text=conf_text,
-			proto="unix",
-		):
-			payload = b"hello over unix stream\n"
-
-			got = await asyncio.wait_for(
-				unix_stream_roundtrip(UNIX_STREAM_SOCK, payload),
-				timeout=3.0,
-			)
-
-			assert got == payload, (
-				f"unix stream roundtrip mismatch: got={got!r} expected={payload!r}"
-			)
-	finally:
-		backend_server.close()
-		await backend_server.wait_closed()
-		unlink_if_exists(UNIX_STREAM_SOCK)
-
-
-async def test_unix_stream_to_builtin_client_addr() -> None:
-	proxy_bin = os.environ.get("TINYPROXY_BIN")
-	if not proxy_bin:
-		raise SkipTest("TINYPROXY_BIN is not set")
-
-	unlink_if_exists(UNIX_BUILTIN_SOCK)
-
-	conf_text = (
-		f"listen unix {UNIX_BUILTIN_SOCK} builtin client_addr\n"
-	)
-
-	try:
-		async with run_tinyproxy_with_conf(
-			proxy_bin=proxy_bin,
-			conf_text=conf_text,
-			proto="unix",
-		):
-			got = await asyncio.wait_for(
-				unix_stream_read(UNIX_BUILTIN_SOCK),
-				timeout=3.0,
-			)
-
-			assert got, "expected builtin client_addr response"
-			assert b"unix" in got.lower() or b"unknown" in got.lower() or got.strip(), (
-				f"unexpected builtin client_addr response: {got!r}"
-			)
-	finally:
-		unlink_if_exists(UNIX_BUILTIN_SOCK)
-
 
 async def test_unix_dgram_to_udp() -> None:
 	if sys.platform.startswith("win"):
@@ -266,22 +159,38 @@ async def test_unix_dgram_to_builtin_client_addr() -> None:
 	finally:
 		unlink_if_exists(UNIX_DGRAM_BUILTIN_SOCK)
 
-async def test_unix_stream_to_unix_stream() -> None:
+async def tcp_roundtrip(host: str, port: int, payload: bytes) -> bytes:
+	reader, writer = await asyncio.open_connection(host, port)
+
+	try:
+		writer.write(payload)
+		await writer.drain()
+
+		return await asyncio.wait_for(
+			reader.readexactly(len(payload)),
+			timeout=3.0,
+		)
+	finally:
+		await close_writer(writer)
+
+
+async def run_stream_chain_roundtrip(
+	conf_text: str,
+	front_port: int,
+	payload: bytes,
+	socks_to_cleanup: list[str],
+) -> bytes:
 	proxy_bin = os.environ.get("TINYPROXY_BIN")
 	if not proxy_bin:
 		raise SkipTest("TINYPROXY_BIN is not set")
 
-	unlink_if_exists(UNIX_TO_UNIX_LISTEN_SOCK)
-	unlink_if_exists(UNIX_TO_UNIX_BACKEND_SOCK)
+	for path in socks_to_cleanup:
+		unlink_if_exists(path)
 
-	conf_text = (
-		f"listen unix {UNIX_TO_UNIX_LISTEN_SOCK} "
-		f"unix {UNIX_TO_UNIX_BACKEND_SOCK}\n"
-	)
-
-	backend_server = await asyncio.start_unix_server(
+	backend_server = await asyncio.start_server(
 		echo_handler,
-		path=UNIX_TO_UNIX_BACKEND_SOCK,
+		LISTEN_HOST,
+		BACKEND_PORT,
 		backlog=128,
 	)
 
@@ -289,32 +198,102 @@ async def test_unix_stream_to_unix_stream() -> None:
 		async with run_tinyproxy_with_conf(
 			proxy_bin=proxy_bin,
 			conf_text=conf_text,
-			proto="unix",
+			proto="tcp",
+			listen_port=front_port,
 		):
-			reader, writer = await open_unix_connection(UNIX_TO_UNIX_LISTEN_SOCK)
-
-			try:
-				payload = b"hello unix to unix\n"
-
-				writer.write(payload)
-				await writer.drain()
-
-				got = await asyncio.wait_for(
-					reader.readexactly(len(payload)),
-					timeout=3.0,
-				)
-
-				assert got == payload, (
-					f"unix-to-unix roundtrip mismatch: "
-					f"got={got!r} expected={payload!r}"
-				)
-			finally:
-				await close_writer(writer)
+			return await tcp_roundtrip(LISTEN_HOST, front_port, payload)
 	finally:
 		backend_server.close()
 		await backend_server.wait_closed()
-		unlink_if_exists(UNIX_TO_UNIX_LISTEN_SOCK)
-		unlink_if_exists(UNIX_TO_UNIX_BACKEND_SOCK)
+
+		for path in socks_to_cleanup:
+			unlink_if_exists(path)
+
+async def tcp_read_once(host: str, port: int) -> bytes:
+	reader, writer = await asyncio.open_connection(host, port)
+
+	try:
+		return await asyncio.wait_for(reader.read(65536), timeout=3.0)
+	finally:
+		await close_writer(writer)
+
+async def test_unix_stream_to_unix_stream() -> None:
+	payload = b"hello unix to unix\n"
+
+	conf_text = (
+		f"listen tcp {LISTEN_HOST}:{FRONT_PORT} "
+		f"unix {UNIX_TO_UNIX_LISTEN_SOCK}\n"
+		f"listen unix {UNIX_TO_UNIX_LISTEN_SOCK} "
+		f"unix {UNIX_TO_UNIX_BACKEND_SOCK}\n"
+		f"listen unix {UNIX_TO_UNIX_BACKEND_SOCK} "
+		f"tcp {LISTEN_HOST}:{BACKEND_PORT}\n"
+	)
+
+	got = await run_stream_chain_roundtrip(
+		conf_text=conf_text,
+		front_port=FRONT_PORT,
+		payload=payload,
+		socks_to_cleanup=[
+			UNIX_TO_UNIX_LISTEN_SOCK,
+			UNIX_TO_UNIX_BACKEND_SOCK,
+		],
+	)
+
+	assert got == payload, (
+		f"unix-to-unix roundtrip mismatch: "
+		f"got={got!r} expected={payload!r}"
+	)
+
+async def test_unix_stream_to_tcp() -> None:
+	payload = b"hello over unix stream\n"
+
+	conf_text = (
+		f"listen tcp {LISTEN_HOST}:{FRONT_PORT} "
+		f"unix {UNIX_STREAM_SOCK}\n"
+		f"listen unix {UNIX_STREAM_SOCK} "
+		f"tcp {LISTEN_HOST}:{BACKEND_PORT}\n"
+	)
+
+	got = await run_stream_chain_roundtrip(
+		conf_text=conf_text,
+		front_port=FRONT_PORT,
+		payload=payload,
+		socks_to_cleanup=[UNIX_STREAM_SOCK],
+	)
+
+	assert got == payload, (
+		f"unix stream roundtrip mismatch: got={got!r} expected={payload!r}"
+	)
+
+async def test_unix_stream_to_builtin_client_addr() -> None:
+	proxy_bin = os.environ.get("TINYPROXY_BIN")
+	if not proxy_bin:
+		raise SkipTest("TINYPROXY_BIN is not set")
+
+	unlink_if_exists(UNIX_BUILTIN_SOCK)
+
+	conf_text = (
+		f"listen tcp {LISTEN_HOST}:{FRONT_PORT} "
+		f"unix {UNIX_BUILTIN_SOCK}\n"
+		f"listen unix {UNIX_BUILTIN_SOCK} "
+		f"builtin client_addr\n"
+	)
+
+	try:
+		async with run_tinyproxy_with_conf(
+			proxy_bin=proxy_bin,
+			conf_text=conf_text,
+			proto="tcp",
+			listen_port=FRONT_PORT,
+		):
+			got = await tcp_read_once(LISTEN_HOST, FRONT_PORT)
+
+			assert got, "expected builtin client_addr response"
+			assert b"unix" in got.lower() or b"unknown" in got.lower() or got.strip(), (
+				f"unexpected builtin client_addr response: {got!r}"
+			)
+	finally:
+		unlink_if_exists(UNIX_BUILTIN_SOCK)
 
 async def unix_dgram_echo_server(path: str):
 	loop = asyncio.get_running_loop()
