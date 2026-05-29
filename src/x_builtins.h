@@ -9,6 +9,7 @@ enum x_builtin_upstream {
 	X_BUILTIN_CLIENT_ADDR,
 	X_BUILTIN_DISCARD,
 	X_BUILTIN_HANG,
+	X_BUILTIN_HTTP_OK,
 	X_BUILTIN_CLOSE,
 };
 

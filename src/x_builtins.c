@@ -10,22 +10,32 @@ int x_builtin_parse(const char *s, enum x_builtin_upstream *out)
 		return -EINVAL;
 	}
 
-	if (strcmp(s, "client_addr") == 0 || strcmp(s, "X_CLIENT_ADDR") == 0) {
+	if (strcmp(s, "client_addr") == 0) {
 		*out = X_BUILTIN_CLIENT_ADDR;
 		return 0;
 	}
 
-	if (strcmp(s, "discard") == 0 || strcmp(s, "X_DISCARD") == 0) {
+	if (strcmp(s, "discard") == 0) {
 		*out = X_BUILTIN_DISCARD;
 		return 0;
 	}
 
-	if (strcmp(s, "hang") == 0 || strcmp(s, "X_HANG") == 0) {
+	if (strcmp(s, "hang") == 0) {
 		*out = X_BUILTIN_HANG;
 		return 0;
 	}
 
-	if (strcmp(s, "close") == 0 || strcmp(s, "X_CLOSE") == 0) {
+	if (strcmp(s, "http-ok") == 0) {
+		*out = X_BUILTIN_HTTP_OK;
+		return 0;
+	}
+
+	if (strcmp(s, "close") == 0) {
+		*out = X_BUILTIN_CLOSE;
+		return 0;
+	}
+
+	if (strcmp(s, "close") == 0) {
 		*out = X_BUILTIN_CLOSE;
 		return 0;
 	}
@@ -42,6 +52,8 @@ const char *x_builtin_name(enum x_builtin_upstream builtin)
 		return "discard";
 	case X_BUILTIN_HANG:
 		return "hang";
+	case X_BUILTIN_HTTP_OK:
+		return "http-ok";
 	case X_BUILTIN_CLOSE:
 		return "close";
 	case X_BUILTIN_NONE:
@@ -76,6 +88,21 @@ int x_builtin_handle(
 		res->data_len = (size_t)n;
 		res->action = X_BUILTIN_ACTION_CLOSE;
 		return 0;
+
+	case X_BUILTIN_HTTP_OK: {
+		static const char http_ok[] =
+			"HTTP/1.1 200 OK\r\n"
+			"Content-Length: 2\r\n"
+			"Connection: close\r\n"
+			"\r\n"
+			"OK";
+
+		memcpy(res->data, http_ok, sizeof(http_ok) - 1);
+		res->data_len = sizeof(http_ok) - 1;
+
+		res->action = X_BUILTIN_ACTION_CLOSE;
+		return 0;
+	}
 
 	case X_BUILTIN_DISCARD:
 		res->action = X_BUILTIN_ACTION_DISCARD;
