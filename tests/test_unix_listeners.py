@@ -64,6 +64,39 @@ async def close_writer(writer: asyncio.StreamWriter) -> None:
 async def open_unix_connection(path: str):
 	return await asyncio.open_unix_connection(path)
 
+def unix_stream_roundtrip_sync(path: str, payload: bytes) -> bytes:
+	with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+		s.settimeout(3.0)
+		s.connect(path)
+		s.sendall(payload)
+
+		chunks = []
+		remaining = len(payload)
+
+		while remaining > 0:
+			data = s.recv(remaining)
+			if not data:
+				break
+			chunks.append(data)
+			remaining -= len(data)
+
+		return b"".join(chunks)
+
+
+async def unix_stream_roundtrip(path: str, payload: bytes) -> bytes:
+	return await asyncio.to_thread(unix_stream_roundtrip_sync, path, payload)
+
+
+def unix_stream_read_sync(path: str) -> bytes:
+	with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
+		s.settimeout(3.0)
+		s.connect(path)
+		return s.recv(65536)
+
+
+async def unix_stream_read(path: str) -> bytes:
+	return await asyncio.to_thread(unix_stream_read_sync, path)
+
 
 async def udp_echo_server(host: str, port: int):
 	loop = asyncio.get_running_loop()
@@ -121,24 +154,16 @@ async def test_unix_stream_to_tcp() -> None:
 			conf_text=conf_text,
 			proto="unix",
 		):
-			reader, writer = await open_unix_connection(UNIX_STREAM_SOCK)
+			payload = b"hello over unix stream\n"
 
-			try:
-				payload = b"hello over unix stream\n"
+			got = await asyncio.wait_for(
+				unix_stream_roundtrip(UNIX_STREAM_SOCK, payload),
+				timeout=3.0,
+			)
 
-				writer.write(payload)
-				await writer.drain()
-
-				got = await asyncio.wait_for(
-					reader.readexactly(len(payload)),
-					timeout=3.0,
-				)
-
-				assert got == payload, (
-					f"unix stream roundtrip mismatch: got={got!r} expected={payload!r}"
-				)
-			finally:
-				await close_writer(writer)
+			assert got == payload, (
+				f"unix stream roundtrip mismatch: got={got!r} expected={payload!r}"
+			)
 	finally:
 		backend_server.close()
 		await backend_server.wait_closed()
@@ -162,17 +187,15 @@ async def test_unix_stream_to_builtin_client_addr() -> None:
 			conf_text=conf_text,
 			proto="unix",
 		):
-			reader, writer = await open_unix_connection(UNIX_BUILTIN_SOCK)
+			got = await asyncio.wait_for(
+				unix_stream_read(UNIX_BUILTIN_SOCK),
+				timeout=3.0,
+			)
 
-			try:
-				got = await asyncio.wait_for(reader.read(65536), timeout=3.0)
-
-				assert got, "expected builtin client_addr response"
-				assert b"unix" in got.lower() or b"unknown" in got.lower() or got.strip(), (
-					f"unexpected builtin client_addr response: {got!r}"
-				)
-			finally:
-				await close_writer(writer)
+			assert got, "expected builtin client_addr response"
+			assert b"unix" in got.lower() or b"unknown" in got.lower() or got.strip(), (
+				f"unexpected builtin client_addr response: {got!r}"
+			)
 	finally:
 		unlink_if_exists(UNIX_BUILTIN_SOCK)
 

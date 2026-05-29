@@ -85,7 +85,10 @@ static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 	const struct endpoint *ep = &ctx->route->listen;
 	const char *path = ep->path;
 	struct sockaddr_un sa;
+	evutil_socket_t fd = -1;
 	struct evconnlistener *listener;
+	size_t path_len;
+	int rc;
 
 	if (path[0] == '\0') {
 		LOG_ERROR("empty unix stream listen path",
@@ -97,14 +100,15 @@ static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 	memset(&sa, 0, sizeof(sa));
 	sa.sun_family = AF_UNIX;
 
-	if (strlen(path) >= sizeof(sa.sun_path)) {
+	path_len = strlen(path);
+	if (path_len >= sizeof(sa.sun_path)) {
 		LOG_ERROR("unix stream listen path too long",
 			"line", _LOGV(ctx->route->line_no),
 			"path", _LOGV(path));
 		return -ENAMETOOLONG;
 	}
 
-	memcpy(sa.sun_path, path, strlen(path) + 1);
+	memcpy(sa.sun_path, path, path_len + 1);
 
 	if (compat_unlink(path) < 0 && errno != ENOENT) {
 		int err = errno;
@@ -116,35 +120,75 @@ static int bind_unix_stream_listener(struct stream_route_ctx *ctx)
 		return -err;
 	}
 
-	listener = evconnlistener_new_bind(
+	fd = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (fd < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to create unix stream listener socket",
+			"line", _LOGV(ctx->route->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		return err ? -err : -EIO;
+	}
+
+#ifdef _WIN32
+	/*
+	 * Windows AF_UNIX is picky. Do not apply TCP-ish listener options
+	 * such as SO_KEEPALIVE / SO_REUSEADDR here.
+	 */
+#else
+	if (evutil_make_listen_socket_reuseable(fd) < 0) {
+		int err = errno;
+
+		LOG_ERROR("failed to make unix stream listener reusable",
+			"line", _LOGV(ctx->route->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(strerror(err)));
+		evutil_closesocket(fd);
+		return -err;
+	}
+#endif
+
+	if (evutil_make_socket_nonblocking(fd) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to make unix stream listener nonblocking",
+			"line", _LOGV(ctx->route->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
+	}
+
+	rc = bind(fd, (struct sockaddr *)&sa, sizeof(sa));
+	if (rc < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to bind unix stream listener socket",
+			"line", _LOGV(ctx->route->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
+	}
+
+	listener = evconnlistener_new(
 		ctx->accept_base,
 		accept_cb,
 		ctx,
-		LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
+		LEV_OPT_CLOSE_ON_FREE,
 		-1,
-		(struct sockaddr *)&sa,
-		sizeof(sa)
+		fd
 	);
-
 	if (listener == NULL) {
-		int sockerr = EVUTIL_SOCKET_ERROR();
-		int syserr = errno;
+		int err = EVUTIL_SOCKET_ERROR();
 
-		LOG_ERROR("failed to bind unix stream listener",
-				"line", _LOGV(ctx->route->line_no),
-				"path", _LOGV(path),
-				"sockerr", _LOGV(sockerr),
-				"sockerrstr", _LOGV(evutil_socket_error_to_string(sockerr)),
-				"errno", _LOGV(syserr),
-				"errnostr", _LOGV(strerror(syserr)));
-
-		if (sockerr != 0) {
-			return -sockerr;
-		}
-		if (syserr != 0) {
-			return -syserr;
-		}
-		return -EIO;
+		LOG_ERROR("failed to create unix stream listener",
+			"line", _LOGV(ctx->route->line_no),
+			"path", _LOGV(path),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
 	}
 
 	ctx->listener = listener;
