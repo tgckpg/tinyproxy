@@ -116,7 +116,7 @@ void pipe_client_write_cb(struct bufferevent *client, void *arg)
 	);
 
 	if (conn->close_client_after_drain && output_len == 0) {
-		LOG_INFO("client output drained; shutting down write side",
+		LOG_DEBUG("client output drained; shutting down write side",
 			"line", _LOGV(conn->route->line_no)
 		);
 

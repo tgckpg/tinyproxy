@@ -104,7 +104,7 @@ int start_stream_builtin(conn_t *conn)
 	case X_BUILTIN_ACTION_CLOSE:
 		if (res.data_len > 0) {
 			bufferevent_write(conn->client, res.data, res.data_len);
-			bufferevent_setcb(conn->client, NULL, builtin_close_after_write_cb, event_cb, conn);
+			bufferevent_setcb(conn->client, NULL, builtin_close_after_write_cb, stream_client_event_cb, conn);
 			bufferevent_enable(conn->client, EV_WRITE);
 		} else {
 			free_conn(conn);
@@ -112,12 +112,12 @@ int start_stream_builtin(conn_t *conn)
 		return 0;
 
 	case X_BUILTIN_ACTION_DISCARD:
-		bufferevent_setcb(conn->client, builtin_client_read_cb, NULL, event_cb, conn);
+		bufferevent_setcb(conn->client, builtin_client_read_cb, NULL, stream_client_event_cb, conn);
 		bufferevent_enable(conn->client, EV_READ);
 		return 0;
 
 	case X_BUILTIN_ACTION_HANG:
-		bufferevent_setcb(conn->client, NULL, NULL, event_cb, conn);
+		bufferevent_setcb(conn->client, NULL, NULL, stream_client_event_cb, conn);
 		bufferevent_enable(conn->client, EV_READ);
 		return 0;
 

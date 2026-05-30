@@ -112,7 +112,7 @@ int main(int argc, char **argv)
 				return 0;
 
 			case 'v':
-				fprintf(stdout, "tinyproxy v0.1.3\n");
+				fprintf(stdout, "tinyproxy v0.1.4\n");
 				free(inline_routes);
 				return 0;
 
