@@ -11,8 +11,6 @@
 #include "compat.h"
 #include "route.h"
 
-struct accept_client_node;
-
 struct worker {
 	unsigned int id;
 
@@ -48,6 +46,7 @@ struct worker_msg {
 
 	union {
 		struct worker_stream_client_msg stream_client;
+//		struct worker_datagram_packet_msg datagram_packet;
 	} payload;
 };
 

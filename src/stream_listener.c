@@ -16,31 +16,39 @@ static void accept_cb(
 	int socklen,
 	void *arg
 ) {
+	struct stream_route_ctx *ctx = arg;
+	struct worker *w;
+	int rc;
+
 	(void)listener;
 
-	struct stream_route_ctx *ctx = arg;
-	struct accepted_client ac = {
-		.fd = client_fd,
-		.route = ctx->route,
-	};
-
-	if (addr != NULL && socklen > 0 && (size_t)socklen <= sizeof(ac.peer_addr)) {
-		memcpy(&ac.peer_addr, addr, (size_t)socklen);
-		ac.peer_addr_len = (socklen_t)socklen;
-	} else {
-		LOG_ERROR("invalid accepted client address", "socklen", _LOGV(socklen));
+	if (addr == NULL || socklen <= 0 || (size_t)socklen > sizeof(struct sockaddr_storage)) {
+		LOG_ERROR("invalid accepted client address",
+			"socklen", _LOGV(socklen)
+		);
 		evutil_closesocket(client_fd);
 		return;
 	}
 
-	struct worker *w = worker_pool_next(ctx->worker_pool);
+	w = worker_pool_next(ctx->worker_pool);
 	if (!w) {
 		LOG_ERROR("no worker available", "socklen", _LOGV(socklen));
 		evutil_closesocket(client_fd);
 		return;
 	}
 
-	if (dispatch_client_fd(w, &ac) != 0) {
+	rc = dispatch_client_fd(
+		w,
+		ctx->route,
+		client_fd,
+		addr,
+		(socklen_t)socklen
+	);
+	if (rc != 0) {
+		LOG_ERROR("failed to dispatch accepted client",
+			"worker", _LOGV(w->id),
+			"err", _LOGV(rc)
+		);
 		evutil_closesocket(client_fd);
 	}
 }

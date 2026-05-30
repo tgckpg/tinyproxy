@@ -407,15 +407,13 @@ void worker_adopt_client_fd(struct worker *w, struct worker_stream_client_msg *a
 	bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
 }
 
-int dispatch_client_fd(struct worker *w, struct accepted_client *ac)
+int dispatch_client_fd(struct worker *w,
+	const struct route *route,
+	evutil_socket_t fd,
+	const struct sockaddr *addr,
+	socklen_t addr_len)
 {
-	return worker_enqueue_stream_client(
-		w,
-		ac->route,
-		ac->fd,
-		(const struct sockaddr *)&ac->peer_addr,
-		ac->peer_addr_len
-	);
+	return worker_enqueue_stream_client(w, route, fd, addr, addr_len);
 }
 
 #ifdef FUZZ
@@ -436,7 +434,7 @@ int stream_route_adopt_client_for_fuzz(
 	w.base = base;
 	w.id = 0;
 
-	struct accepted_client ac;
+	struct worker_stream_client_msg ac;
 	memset(&ac, 0, sizeof(ac));
 
 	ac.fd = client_fd;

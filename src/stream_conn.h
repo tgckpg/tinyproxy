@@ -5,7 +5,11 @@
 
 struct worker_stream_client_msg;
 
-int dispatch_client_fd(struct worker *w, struct accepted_client *ac);
+int dispatch_client_fd(struct worker *w,
+	const struct route *route,
+	evutil_socket_t fd,
+	const struct sockaddr *addr,
+	socklen_t addr_len);
 void free_conn(conn_t *conn);
 
 void set_client_idle_timeout(conn_t *conn, const struct route *r);

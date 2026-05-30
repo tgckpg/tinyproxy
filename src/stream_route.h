@@ -33,19 +33,6 @@ typedef struct conn_s {
 	bool close_client_after_drain;
 } conn_t;
 
-struct accepted_client {
-	const struct route *route;
-	evutil_socket_t fd;
-
-	struct sockaddr_storage peer_addr;
-	socklen_t peer_addr_len;
-};
-
-struct accepted_client_node {
-	struct accepted_client client;
-	struct accepted_client_node *next;
-};
-
 int start_stream_route(
 		struct event_base *accept_base,
 		struct worker_pool *wpool,
