@@ -19,29 +19,17 @@ struct datagram_client {
 	struct datagram_client *next;
 };
 
-struct datagram_packet {
-	const struct route *route;
-
-	evutil_socket_t listen_fd;
-
-	struct sockaddr_storage peer_addr;
-	socklen_t peer_addr_len;
-
-	unsigned char data[65535];
-	size_t data_len;
-};
-
 void cleanup_idle_datagram_clients(struct datagram_route_ctx *ctx);
 void free_datagram_client(struct datagram_client *c);
 
 struct datagram_client *create_datagram_client(
 	struct datagram_route_ctx *ctx,
+	struct event_base *base,
 	const struct sockaddr_storage *client_addr,
-	socklen_t client_addr_len
-);
+	socklen_t client_addr_len);
 
 struct datagram_client *find_datagram_client(
-	struct datagram_route_ctx *ctx,
+	const struct datagram_route_ctx *ctx,
 	const struct sockaddr_storage *addr,
 	socklen_t addr_len
 );

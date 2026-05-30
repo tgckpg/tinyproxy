@@ -74,7 +74,7 @@ void cleanup_idle_datagram_clients(struct datagram_route_ctx *ctx)
 }
 
 struct datagram_client *find_datagram_client(
-	struct datagram_route_ctx *ctx,
+	const struct datagram_route_ctx *ctx,
 	const struct sockaddr_storage *addr,
 	socklen_t addr_len
 ) {
@@ -203,7 +203,7 @@ int send_datagram_payload_to_upstream(
 	const unsigned char *payload,
 	size_t payload_len
 ) {
-	struct datagram_route_ctx *ctx = c->ctx;
+	const struct datagram_route_ctx *ctx = c->ctx;
 	const struct route *r = ctx->route;
 
 	if (!r->opts.proxy_v2) {
@@ -263,7 +263,7 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 	(void)events;
 
 	struct datagram_client *c = arg;
-	struct datagram_route_ctx *ctx = c->ctx;
+	const struct datagram_route_ctx *ctx = c->ctx;
 
 	unsigned char buf[UDP_MAX_PACKET];
 
@@ -308,9 +308,10 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 
 struct datagram_client *create_datagram_client(
 	struct datagram_route_ctx *ctx,
+	struct event_base *base,
 	const struct sockaddr_storage *client_addr,
-	socklen_t client_addr_len
-) {
+	socklen_t client_addr_len)
+{
 	const struct route *r = ctx->route;
 
 	struct datagram_client *c = calloc(1, sizeof(*c));
@@ -340,7 +341,7 @@ struct datagram_client *create_datagram_client(
 		return NULL;
 	}
 
-	c->ev = event_new(ctx->base, c->fd, EV_READ | EV_PERSIST, upstream_read_cb, c);
+	c->ev = event_new(base, c->fd, EV_READ | EV_PERSIST, upstream_read_cb, c);
 	if (c->ev == NULL) {
 		LOG_ERROR("event_new failed for udp upstream");
 		free_datagram_client(c);

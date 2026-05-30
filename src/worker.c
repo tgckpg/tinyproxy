@@ -7,6 +7,8 @@
 
 #include "klog.h"
 #include "stream_conn.h"
+#include "datagram_client.h"
+#include "datagram_listener.h"
 #include "worker.h"
 
 static void worker_notify_cb(evutil_socket_t fd, short events, void *arg);
@@ -99,6 +101,11 @@ static void worker_process_msg(struct worker *w, struct worker_msg *msg)
 		worker_adopt_client_fd(w, &msg->payload.stream_client);
 		break;
 
+	case WORKER_MSG_DATAGRAM_PACKET:
+		cleanup_idle_datagram_clients(msg->payload.datagram_packet.ctx);
+		datagram_route_handle_packet(w, &msg->payload.datagram_packet);
+		break;
+
 	default:
 		LOG_WARN("unknown worker message kind",
 			"worker", _LOGV(w->id),
@@ -108,25 +115,28 @@ static void worker_process_msg(struct worker *w, struct worker_msg *msg)
 	}
 }
 
-static void worker_process_pending(struct worker *w)
+static void free_processed_worker_msg(struct worker_msg *msg)
 {
-	struct worker_msg *msg = worker_take_pending(w);
-
-	while (msg) {
-		struct worker_msg *next = msg->next;
-
-		worker_process_msg(w, msg);
-
-		/*
-		 * Important:
-		 * Do not call free_worker_msg() here.
-		 *
-		 * If worker_adopt_client_fd() succeeds, fd ownership moved
-		 * into stream connection handling.
-		 */
-		free(msg);
-		msg = next;
+	if (!msg) {
+		return;
 	}
+
+	switch (msg->kind) {
+	case WORKER_MSG_STREAM_CLIENT:
+		/*
+		 * fd ownership moved to stream connection handling.
+		 * Do not close it here.
+		 */
+		break;
+
+	case WORKER_MSG_DATAGRAM_PACKET:
+		free(msg->payload.datagram_packet.data);
+		msg->payload.datagram_packet.data = NULL;
+		msg->payload.datagram_packet.data_len = 0;
+		break;
+	}
+
+	free(msg);
 }
 
 static void *worker_main(void *arg)
@@ -273,6 +283,20 @@ static int socket_is_valid(evutil_socket_t fd)
     return fd != (evutil_socket_t)EVUTIL_INVALID_SOCKET;
 }
 
+static void worker_process_pending(struct worker *w)
+{
+	struct worker_msg *msg = worker_take_pending(w);
+
+	while (msg) {
+		struct worker_msg *next = msg->next;
+
+		worker_process_msg(w, msg);
+		free_processed_worker_msg(msg);
+
+		msg = next;
+	}
+}
+
 static void free_worker_msg(struct worker_msg *msg)
 {
 	if (!msg) {
@@ -285,6 +309,11 @@ static void free_worker_msg(struct worker_msg *msg)
 			evutil_closesocket(msg->payload.stream_client.fd);
 			msg->payload.stream_client.fd = EVUTIL_INVALID_SOCKET;
 		}
+		break;
+	case WORKER_MSG_DATAGRAM_PACKET:
+		free(msg->payload.datagram_packet.data);
+		msg->payload.datagram_packet.data = NULL;
+		msg->payload.datagram_packet.data_len = 0;
 		break;
 	}
 
@@ -405,6 +434,61 @@ int worker_enqueue_stream_client(
 	if (addr && addr_len > 0) {
 		memcpy(&msg->payload.stream_client.peer_addr, addr, addr_len);
 		msg->payload.stream_client.peer_addr_len = addr_len;
+	}
+
+	return worker_enqueue_msg(w, msg);
+}
+
+int worker_enqueue_datagram_packet(
+	struct worker *w,
+	struct datagram_route_ctx *ctx,
+	evutil_socket_t listen_fd,
+	const struct sockaddr *peer_addr,
+	socklen_t peer_addr_len,
+	const unsigned char *data,
+	size_t data_len)
+{
+	struct worker_msg *msg;
+	const struct route *route = ctx->route;
+
+	if (!w || !route || !socket_is_valid(listen_fd)) {
+		return EINVAL;
+	}
+
+	if (!peer_addr || peer_addr_len == 0 ||
+	    peer_addr_len > sizeof(((struct worker_datagram_packet_msg *)0)->peer_addr)) {
+		return EINVAL;
+	}
+
+	if (!data && data_len > 0) {
+		return EINVAL;
+	}
+
+	msg = calloc(1, sizeof(*msg));
+	if (!msg) {
+		return ENOMEM;
+	}
+
+	msg->kind = WORKER_MSG_DATAGRAM_PACKET;
+	msg->payload.datagram_packet.route = route;
+	msg->payload.datagram_packet.ctx = ctx;
+
+	memcpy(
+		&msg->payload.datagram_packet.peer_addr,
+		peer_addr,
+		peer_addr_len
+	);
+	msg->payload.datagram_packet.peer_addr_len = peer_addr_len;
+
+	if (data_len > 0) {
+		msg->payload.datagram_packet.data = malloc(data_len);
+		if (!msg->payload.datagram_packet.data) {
+			free(msg);
+			return ENOMEM;
+		}
+
+		memcpy(msg->payload.datagram_packet.data, data, data_len);
+		msg->payload.datagram_packet.data_len = data_len;
 	}
 
 	return worker_enqueue_msg(w, msg);

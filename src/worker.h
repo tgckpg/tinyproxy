@@ -11,6 +11,8 @@
 #include "compat.h"
 #include "route.h"
 
+struct datagram_route_ctx;
+
 struct worker {
 	unsigned int id;
 
@@ -31,6 +33,7 @@ struct worker {
 
 enum worker_msg_kind {
 	WORKER_MSG_STREAM_CLIENT,
+	WORKER_MSG_DATAGRAM_PACKET,
 };
 
 struct worker_stream_client_msg {
@@ -40,13 +43,24 @@ struct worker_stream_client_msg {
 	socklen_t peer_addr_len;
 };
 
+struct worker_datagram_packet_msg {
+	const struct route *route;
+	struct datagram_route_ctx *ctx;
+
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_addr_len;
+
+	unsigned char *data;
+	size_t data_len;
+};
+
 struct worker_msg {
 	enum worker_msg_kind kind;
 	struct worker_msg *next;
 
 	union {
 		struct worker_stream_client_msg stream_client;
-//		struct worker_datagram_packet_msg datagram_packet;
+		struct worker_datagram_packet_msg datagram_packet;
 	} payload;
 };
 
@@ -63,5 +77,14 @@ int worker_enqueue_stream_client(
 	const struct sockaddr *addr,
 	socklen_t addr_len
 );
+
+int worker_enqueue_datagram_packet(
+	struct worker *w,
+	struct datagram_route_ctx *ctx,
+	evutil_socket_t listen_fd,
+	const struct sockaddr *peer_addr,
+	socklen_t peer_addr_len,
+	const unsigned char *data,
+	size_t data_len);
 
 #endif

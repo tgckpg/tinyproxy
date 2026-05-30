@@ -8,14 +8,12 @@
 #include "datagram_client.h"
 #include "datagram_builtin.h"
 
-static int handle_datagram_builtin_packet(
-	struct datagram_route_ctx *ctx,
-	const struct datagram_packet *pkt)
+static int handle_datagram_builtin_packet(const struct worker_datagram_packet_msg *pkt)
 {
 	struct datagram_client tmp;
 	memset(&tmp, 0, sizeof(tmp));
 
-	tmp.ctx = ctx;
+	tmp.ctx = pkt->ctx;
 	tmp.fd = EVUTIL_INVALID_SOCKET;
 	tmp.client_addr = pkt->peer_addr;
 	tmp.client_addr_len = pkt->peer_addr_len;
@@ -28,40 +26,49 @@ static int handle_datagram_builtin_packet(
 	return rc;
 }
 
-static struct datagram_client* datagram_route_get_or_create_client(
-	struct datagram_route_ctx *ctx,
-	const struct datagram_packet *pkt)
+static struct datagram_client *datagram_route_get_or_create_client(
+	struct worker *w,
+	const struct worker_datagram_packet_msg *pkt)
 {
-	struct datagram_client *c = find_datagram_client(ctx, &pkt->peer_addr, pkt->peer_addr_len);
+	struct datagram_client *c;
+
+	c = find_datagram_client(pkt->ctx, &pkt->peer_addr, pkt->peer_addr_len);
 	if (c == NULL) {
-		c = create_datagram_client(ctx, &pkt->peer_addr, pkt->peer_addr_len);
+		c = create_datagram_client(
+			pkt->ctx,
+			w->base,
+			&pkt->peer_addr,
+			pkt->peer_addr_len
+		);
 		if (c == NULL) {
-			return c;
+			return NULL;
 		}
 	}
+
 	c->last_seen = time(NULL);
 	return c;
 }
 
-static int datagram_route_handle_packet(
-	struct datagram_route_ctx *ctx,
-	const struct datagram_packet *pkt)
+int datagram_route_handle_packet(
+	struct worker *w,
+	const struct worker_datagram_packet_msg *pkt)
 {
 	struct datagram_client *c;
 	int rc;
 
 	if (pkt->route->upstream.kind == ENDPOINT_BUILTIN) {
-		return handle_datagram_builtin_packet(ctx, pkt);
+		return handle_datagram_builtin_packet(pkt);
 	}
 
-	c = datagram_route_get_or_create_client(ctx, pkt);
+	c = datagram_route_get_or_create_client(w, pkt);
 	if (!c) {
 		return -ENOMEM;
 	}
 
 	rc = send_datagram_payload_to_upstream(c, pkt->data, pkt->data_len);
 	if (rc != 0) {
-		LOG_WARN("failed to send datagram payload upstream", "err", _LOGV(strerror(-rc)));
+		LOG_WARN("failed to send datagram payload upstream",
+			"err", _LOGV(strerror(-rc)));
 		return rc;
 	}
 
@@ -70,37 +77,59 @@ static int datagram_route_handle_packet(
 
 static int dispatch_datagram_packet(
 	struct datagram_route_ctx *ctx,
-	const struct datagram_packet *pkt
-) {
+	evutil_socket_t listen_fd,
+	const struct sockaddr *peer_addr,
+	socklen_t peer_addr_len,
+	const unsigned char *data,
+	size_t data_len)
+{
+	struct worker *w;
+
+	if (!ctx || !ctx->worker_pool) {
+		return EINVAL;
+	}
+
 	/*
-	 * Datagram routes are pinned to ctx->base for now.
-	 * Later this function can choose a worker/shard.
+	 * For now this can be round-robin to test plumbing.
+	 * Before real UDP threading, change this to hash by peer_addr.
 	 */
-	return datagram_route_handle_packet(ctx, pkt);
+	w = worker_pool_next(ctx->worker_pool);
+	if (!w) {
+		return EINVAL;
+	}
+
+	return worker_enqueue_datagram_packet(
+		w,
+		ctx,
+		listen_fd,
+		peer_addr,
+		peer_addr_len,
+		data,
+		data_len
+	);
 }
 
 static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 {
 	struct datagram_route_ctx *ctx = arg;
-	struct datagram_packet pkt;
+	struct sockaddr_storage peer_addr;
+	socklen_t peer_addr_len;
+	unsigned char buf[65535];
 	ssize_t n;
+	int rc;
 
 	(void)events;
 
-	cleanup_idle_datagram_clients(ctx);
-
-	memset(&pkt, 0, sizeof(pkt));
-	pkt.route = ctx->route;
-	pkt.listen_fd = fd;
-	pkt.peer_addr_len = sizeof(pkt.peer_addr);
+	memset(&peer_addr, 0, sizeof(peer_addr));
+	peer_addr_len = sizeof(peer_addr);
 
 	n = recvfrom(
 		fd,
-		(char *)pkt.data,
-		sizeof(pkt.data),
+		(char *)buf,
+		sizeof(buf),
 		0,
-		(struct sockaddr *)&pkt.peer_addr,
-		&pkt.peer_addr_len
+		(struct sockaddr *)&peer_addr,
+		&peer_addr_len
 	);
 
 	if (n < 0) {
@@ -111,18 +140,23 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 		}
 
 		LOG_ERROR("udp listen recv failed",
-				"err", _LOGV(evutil_socket_error_to_string(err))
-				);
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
 		return;
 	}
 
-	pkt.data_len = (size_t)n;
-
-	int rc = dispatch_datagram_packet(ctx, &pkt);
+	rc = dispatch_datagram_packet(
+		ctx,
+		fd,
+		(struct sockaddr *)&peer_addr,
+		peer_addr_len,
+		buf,
+		(size_t)n
+	);
 	if (rc != 0) {
 		LOG_WARN("failed to dispatch datagram packet",
-				"err", _LOGV(rc)
-				);
+			"err", _LOGV(rc)
+		);
 	}
 }
 
