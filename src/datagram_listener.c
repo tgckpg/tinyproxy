@@ -170,6 +170,12 @@ static int bind_unix_datagram_listener(struct datagram_route_ctx *ctx)
 		return -err;
 	}
 
+	if (r->opts.broadcast_reply) {
+		LOG_ERROR("broadcast_reply is only valid for udp inet listeners",
+				"line", _LOGV(r->line_no));
+		return -EINVAL;
+	}
+
 	evutil_make_socket_closeonexec(ctx->listen_fd);
 
 	if (evutil_make_socket_nonblocking(ctx->listen_fd) < 0) {
@@ -270,6 +276,18 @@ static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
 		return -err;
+	}
+
+	if (r->opts.broadcast_reply) {
+		int yes = 1;
+		if (setsockopt(ctx->listen_fd, SOL_SOCKET, SO_BROADCAST,
+					(const char *)&yes, sizeof(yes)) < 0) {
+			int err = EVUTIL_SOCKET_ERROR();
+			LOG_ERROR("failed to enable broadcast",
+					"line", _LOGV(r->line_no),
+					"err", _LOGV(evutil_socket_error_to_string(err)));
+			return -err;
+		}
 	}
 
 	evutil_make_socket_closeonexec(ctx->listen_fd);

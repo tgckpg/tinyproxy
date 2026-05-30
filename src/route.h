@@ -19,6 +19,7 @@
 struct route_options {
 	bool proxy_v2;
 	bool keep_alive;
+	bool broadcast_reply;
 
 	int idle_timeout_sec;
 	int connect_timeout_sec;

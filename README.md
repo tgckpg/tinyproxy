@@ -19,10 +19,19 @@ listen <listen-proto> <listen-endpoint> <backend-proto> <backend-endpoint> [opti
 
 Example routes:
 
-```text
+```sh
 tinyproxy \
     -L "tcp :31232 tcp 127.0.0.1:41232" \
     -L "udp :31232 udp 127.0.0.1:41232"
+```
+
+Minecraft Bedrock public-to-LAN proxy
+
+Makes a remote Minecraft Bedrock server appear as a LAN server.
+
+```sh
+tinyproxy \
+    -L "udp :19132 udp 123.123.123.123:19132 broadcast_reply"
 ```
 
 Run with config file:

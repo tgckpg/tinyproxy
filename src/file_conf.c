@@ -231,6 +231,7 @@ static int parse_route_options(char *s, struct route_options *opts)
 
 		PARSE_BOOL_OPT("proxy_v2", proxy_v2);
 		PARSE_BOOL_OPT("keep_alive", keep_alive);
+		PARSE_BOOL_OPT("broadcast_reply", broadcast_reply);
 
 		return -EINVAL;
 
