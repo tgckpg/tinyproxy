@@ -10,6 +10,7 @@ enum x_builtin_upstream {
 	X_BUILTIN_DISCARD,
 	X_BUILTIN_HANG,
 	X_BUILTIN_HTTP_OK,
+	X_BUILTIN_LOG_CONN,
 	X_BUILTIN_CLOSE,
 };
 

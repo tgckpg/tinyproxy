@@ -7,6 +7,13 @@
 #include "klog.h"
 #include "route.h"
 
+static _Thread_local int klog_worker_id = -1;
+
+void klog_set_worker_id(int id)
+{
+	klog_worker_id = id;
+}
+
 static int localtime_compat(const time_t *t, struct tm *out)
 {
 #ifdef _WIN32
@@ -109,13 +116,14 @@ void log_at(char sev, const char *file, int line, const char *msg, ...)
 
 	strftime(tbuf, sizeof(tbuf), "%m%d %H:%M:%S", &tm);
 
-	fprintf(stderr, "%c%s.%06ld %7ld %s:%d] msg=",
+	fprintf(stderr, "%c%s.%06ld %7ld %s:%d] worker=%u msg=",
 		sev,
 		tbuf,
 		ts.tv_nsec / 1000,
 		(long)compat_getpid(),
 		file,
-		line);
+		line,
+		klog_worker_id);
 
 	print_quoted_value(msg);
 

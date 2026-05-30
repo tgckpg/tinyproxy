@@ -1,8 +1,9 @@
-#include "x_builtins.h"
-
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
+
+#include "klog.h"
+#include "x_builtins.h"
 
 int x_builtin_parse(const char *s, enum x_builtin_upstream *out)
 {
@@ -25,8 +26,13 @@ int x_builtin_parse(const char *s, enum x_builtin_upstream *out)
 		return 0;
 	}
 
-	if (strcmp(s, "http-ok") == 0) {
+	if (strcmp(s, "http_ok") == 0) {
 		*out = X_BUILTIN_HTTP_OK;
+		return 0;
+	}
+
+	if (strcmp(s, "log_conn") == 0) {
+		*out = X_BUILTIN_LOG_CONN;
 		return 0;
 	}
 
@@ -53,7 +59,9 @@ const char *x_builtin_name(enum x_builtin_upstream builtin)
 	case X_BUILTIN_HANG:
 		return "hang";
 	case X_BUILTIN_HTTP_OK:
-		return "http-ok";
+		return "http_ok";
+	case X_BUILTIN_LOG_CONN:
+		return "log_conn";
 	case X_BUILTIN_CLOSE:
 		return "close";
 	case X_BUILTIN_NONE:
@@ -106,6 +114,12 @@ int x_builtin_handle(
 
 	case X_BUILTIN_DISCARD:
 		res->action = X_BUILTIN_ACTION_DISCARD;
+		return 0;
+
+	case X_BUILTIN_LOG_CONN:
+		LOG_INFO("log_conn", "client_addr", _LOGV(req->client_addr));
+		res->data_len = 0;
+		res->action = X_BUILTIN_ACTION_CLOSE;
 		return 0;
 
 	case X_BUILTIN_CLOSE:

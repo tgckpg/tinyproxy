@@ -1,6 +1,7 @@
 #include <event2/event.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,7 @@
 #include "klog.h"
 #include "signals.h"
 #include "file_conf.h"
+#include "compat_cpu.h"
 #include "worker_pool.h"
 #include "route.h"
 #include "route_runtime.h"
@@ -20,6 +22,7 @@ static void usage(FILE *out, const char *prog)
 		"usage: %s [-c config-file | -L route]\n"
 		"\n"
 		"options:\n"
+		"  -w N      Number of worker threads. 0 = auto (one per CPU). Default 1\n"
 		"  -c FILE   path to config file (default: tinyproxy.conf)\n"
 		"  -L ROUTE  add inline route, same syntax as config line\n"
 		"            may be specified multiple times\n"
@@ -45,6 +48,7 @@ static void prevent_socket_write_from_killing_process(void)
 int main(int argc, char **argv)
 {
 	prevent_socket_write_from_killing_process();
+	klog_set_worker_id(0);
 
 	int opt;
 	int exit_code = 1;
@@ -60,6 +64,8 @@ int main(int argc, char **argv)
 	int wsa_started = 0;
 #endif
 
+	size_t worker_count = 1;
+
 	const char *conf_path = NULL;
 	struct route *routes = NULL;
 	size_t route_count = 0;
@@ -71,8 +77,34 @@ int main(int argc, char **argv)
 	struct signal_events signals;
 	int signals_started = 0;
 
-	while ((opt = getopt(argc, argv, "c:L:h:v")) != -1) {
+	while ((opt = getopt(argc, argv, "c:L:w:h:v")) != -1) {
 		switch (opt) {
+			case 'w': {
+				char *end = NULL;
+				unsigned long n;
+
+				if (optarg == NULL || optarg[0] == '\0') {
+					LOG_ERROR("missing number after -w");
+					return 2;
+				}
+
+				errno = 0;
+				n = strtoul(optarg, &end, 10);
+
+				if (errno == ERANGE || end == optarg || *end != '\0' || n > INT_MAX) {
+					LOG_ERROR("invalid worker count", "value", _LOGV(optarg));
+					return 2;
+				}
+
+				worker_count = (int)n;
+
+				if(worker_count == 0) {
+					worker_count = compat_cpu_count();
+				}
+
+				break;
+			}
+
 			case 'c':
 				if (optarg == NULL || optarg[0] == '\0') {
 					LOG_ERROR("missing config path after -c");
@@ -219,11 +251,10 @@ int main(int argc, char **argv)
 	signals_started = 1;
 
 	struct worker_pool wpool;
-	size_t worker_count = 1;
 
 	rc = worker_pool_init(&wpool, worker_count);
 	if (rc != 0) {
-		LOG_ERROR("failed to init worker pool", "err", _LOGV(rc));
+		LOG_ERROR("failed to init worker pool", "err", _LOGV(strerror(rc)));
 		goto out;
 	}
 	worker_pool_ready = true;

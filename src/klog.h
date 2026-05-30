@@ -31,6 +31,8 @@ struct log_value {
 	} v;
 };
 
+void klog_set_worker_id(int id);
+
 void log_at(char sev, const char *file, int line, const char *msg, ...);
 
 static inline struct log_value log_value_str(const char *v)

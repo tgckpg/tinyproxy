@@ -1,8 +1,9 @@
-#include "worker_pool.h"
-
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "klog.h"
+#include "worker_pool.h"
 
 int worker_pool_init(struct worker_pool *pool, size_t count)
 {
@@ -22,7 +23,7 @@ int worker_pool_init(struct worker_pool *pool, size_t count)
 	pool->count = count;
 
 	for (i = 0; i < count; i++) {
-		int rc = worker_init(&pool->workers[i], (unsigned int)i);
+		int rc = worker_init(&pool->workers[i], (unsigned int)(i + 1));
 		if (rc != 0) {
 			while (i > 0) {
 				i--;
@@ -36,6 +37,8 @@ int worker_pool_init(struct worker_pool *pool, size_t count)
 			return rc;
 		}
 	}
+
+	LOG_INFO("worker pool initialized", "workers", _LOGV(count));
 
 	return 0;
 }

@@ -31,6 +31,10 @@ Routes may be configured using a config file or directly from the command line w
 
 # OPTIONS
 
+*-w* <workers>
+	Number of worker threads. 0 = auto (one per CPU).
+	Default 1
+
 *-c* <config>
 	Load configuration file.
 

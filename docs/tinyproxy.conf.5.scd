@@ -66,10 +66,13 @@ builtin close
 	- TCP: Accepts the connection and immediately closes it without reading or writing.
 	- UDP: this is equivalent to discard/drop because UDP has no connection to close.
 
-buitin http-ok
+buitin http_ok
 	Returns "HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\nOK" then close.
 
 	Useful for probing
+
+buitin log_conn
+	Logs the connection.
 
 # EXAMPLES
 

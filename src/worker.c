@@ -99,6 +99,7 @@ static void worker_process_pending(struct worker *w)
 static void *worker_main(void *arg)
 {
 	struct worker *w = arg;
+	klog_set_worker_id(w->id);
 
 	event_base_dispatch(w->base);
 
