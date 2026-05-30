@@ -151,7 +151,7 @@ jobs:
           release: "14.2"
           usesh: true
           prepare: |
-            pkg install -y gmake pkgconf libevent python3 haproxy
+            pkg install -y gmake pkgconf libevent python3 pcre2 haproxy
           run: |
             set -eu
 
