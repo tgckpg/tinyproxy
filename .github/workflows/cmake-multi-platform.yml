@@ -156,7 +156,13 @@ jobs:
             set -eu
 
             gmake clean all EXTRA_CFLAGS="-Og -g3 -Wpedantic"
-            gmake test
+
+            # BSD is running in a VM. Lower the requirements.
+            #   GitHub Actions runner VM
+            #   -> FreeBSD VM/emulator
+            gmake test \
+              CONCURRENCY=100 TOTAL=100 FD_LIMIT=2560 \
+              LARGE_ROUNDTRIP_SIZE=65536 SEQUENTIAL_CONNECTIONS=100
 
             gmake clean all
 
