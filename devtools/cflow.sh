@@ -1,5 +1,7 @@
 #!/bin/sh
 set -eu
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(realpath "$SCRIPT_DIR/../")"
 
 MAIN="${1:-main}"
 
@@ -61,5 +63,6 @@ IGNORE_RE="$(printf '%s\n' "$IGNORE" \
 	| sed '/^[[:space:]]*$/d' \
 	| paste -sd '|' -)"
 
+cd "$PROJECT_ROOT"
 cflow --brief -n --main="$MAIN" src/*.c |
 	grep -Ev "^[[:space:]]+[[:digit:]]+[[:space:]]*(${IGNORE_RE})\\("

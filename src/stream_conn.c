@@ -265,7 +265,7 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 	}
 }
 
-void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
+void worker_adopt_client_fd(struct worker *w, struct worker_stream_client_msg *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));
 	if (conn == NULL) {
 		evutil_closesocket(ac->fd);
@@ -409,7 +409,7 @@ void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
 
 int dispatch_client_fd(struct worker *w, struct accepted_client *ac)
 {
-	return worker_enqueue_client_fd(
+	return worker_enqueue_stream_client(
 		w,
 		ac->route,
 		ac->fd,

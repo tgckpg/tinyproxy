@@ -77,9 +77,9 @@ static void drain_notify_fd(evutil_socket_t fd)
 	}
 }
 
-static struct accepted_client_node *worker_take_pending(struct worker *w)
+static struct worker_msg *worker_take_pending(struct worker *w)
 {
-	struct accepted_client_node *head;
+	struct worker_msg *head;
 
 	compat_mutex_lock(&w->pending_mu);
 
@@ -92,17 +92,40 @@ static struct accepted_client_node *worker_take_pending(struct worker *w)
 	return head;
 }
 
+static void worker_process_msg(struct worker *w, struct worker_msg *msg)
+{
+	switch (msg->kind) {
+	case WORKER_MSG_STREAM_CLIENT:
+		worker_adopt_client_fd(w, &msg->payload.stream_client);
+		break;
+
+	default:
+		LOG_WARN("unknown worker message kind",
+			"worker", _LOGV(w->id),
+			"kind", _LOGV(msg->kind)
+		);
+		break;
+	}
+}
+
 static void worker_process_pending(struct worker *w)
 {
-	struct accepted_client_node *node = worker_take_pending(w);
+	struct worker_msg *msg = worker_take_pending(w);
 
-	while (node) {
-		struct accepted_client_node *next = node->next;
+	while (msg) {
+		struct worker_msg *next = msg->next;
 
-		worker_adopt_client_fd(w, &node->client);
+		worker_process_msg(w, msg);
 
-		free(node);
-		node = next;
+		/*
+		 * Important:
+		 * Do not call free_worker_msg() here.
+		 *
+		 * If worker_adopt_client_fd() succeeds, fd ownership moved
+		 * into stream connection handling.
+		 */
+		free(msg);
+		msg = next;
 	}
 }
 
@@ -250,9 +273,27 @@ static int socket_is_valid(evutil_socket_t fd)
     return fd != (evutil_socket_t)EVUTIL_INVALID_SOCKET;
 }
 
+static void free_worker_msg(struct worker_msg *msg)
+{
+	if (!msg) {
+		return;
+	}
+
+	switch (msg->kind) {
+	case WORKER_MSG_STREAM_CLIENT:
+		if (socket_is_valid(msg->payload.stream_client.fd)) {
+			evutil_closesocket(msg->payload.stream_client.fd);
+			msg->payload.stream_client.fd = EVUTIL_INVALID_SOCKET;
+		}
+		break;
+	}
+
+	free(msg);
+}
+
 void worker_free(struct worker *w)
 {
-	struct accepted_client_node *node;
+	struct worker_msg *msg;
 
 	if (!w) {
 		return;
@@ -261,16 +302,12 @@ void worker_free(struct worker *w)
 	worker_stop(w);
 	worker_join(w);
 
-	node = worker_take_pending(w);
-	while (node) {
-		struct accepted_client_node *next = node->next;
+	msg = worker_take_pending(w);
+	while (msg) {
+		struct worker_msg *next = msg->next;
 
-		if (socket_is_valid(node->client.fd)) {
-			evutil_closesocket(node->client.fd);
-		}
-
-		free(node);
-		node = next;
+		free_worker_msg(msg);
+		msg = next;
 	}
 
 	if (w->notify_event) {
@@ -296,60 +333,39 @@ void worker_free(struct worker *w)
 	}
 }
 
-int worker_enqueue_client_fd(
-	struct worker *w,
-	const struct route *route,
-	evutil_socket_t fd,
-	const struct sockaddr *addr,
-	socklen_t addr_len
-) {
-	struct accepted_client_node *node;
+static int worker_enqueue_msg(struct worker *w, struct worker_msg *msg)
+{
 	int rc;
 
-	if (!w || !route || !socket_is_valid(fd)) {
+	if (!w || !msg) {
 		return EINVAL;
-	}
-
-	if (addr_len > sizeof(node->client.peer_addr)) {
-		return EINVAL;
-	}
-
-	node = calloc(1, sizeof(*node));
-	if (!node) {
-		return ENOMEM;
-	}
-
-	node->client.route = route;
-	node->client.fd = fd;
-
-	if (addr && addr_len > 0) {
-		memcpy(&node->client.peer_addr, addr, addr_len);
-		node->client.peer_addr_len = addr_len;
 	}
 
 	compat_mutex_lock(&w->pending_mu);
 
 	if (w->stopping) {
 		compat_mutex_unlock(&w->pending_mu);
-		free(node);
+		free_worker_msg(msg);
 		return ECANCELED;
 	}
 
+	msg->next = NULL;
+
 	if (w->pending_tail) {
-		w->pending_tail->next = node;
+		w->pending_tail->next = msg;
 	} else {
-		w->pending_head = node;
+		w->pending_head = msg;
 	}
 
-	w->pending_tail = node;
+	w->pending_tail = msg;
 
 	compat_mutex_unlock(&w->pending_mu);
 
 	rc = notify_worker(w);
 	if (rc != 0) {
 		/*
-		 * The fd is already queued and owned by the worker.
-		 * Do not close it here.
+		 * The message is already queued and owned by the worker.
+		 * Do not free it here.
 		 */
 		LOG_WARN("failed to notify worker",
 			"worker", _LOGV(w->id),
@@ -360,9 +376,44 @@ int worker_enqueue_client_fd(
 	return 0;
 }
 
+int worker_enqueue_stream_client(
+	struct worker *w,
+	const struct route *route,
+	evutil_socket_t fd,
+	const struct sockaddr *addr,
+	socklen_t addr_len)
+{
+	struct worker_msg *msg;
+
+	if (!w || !route || !socket_is_valid(fd)) {
+		return EINVAL;
+	}
+
+	if (addr_len > sizeof(((struct worker_stream_client_msg *)0)->peer_addr)) {
+		return EINVAL;
+	}
+
+	msg = calloc(1, sizeof(*msg));
+	if (!msg) {
+		return ENOMEM;
+	}
+
+	msg->kind = WORKER_MSG_STREAM_CLIENT;
+	msg->payload.stream_client.route = route;
+	msg->payload.stream_client.fd = fd;
+
+	if (addr && addr_len > 0) {
+		memcpy(&msg->payload.stream_client.peer_addr, addr, addr_len);
+		msg->payload.stream_client.peer_addr_len = addr_len;
+	}
+
+	return worker_enqueue_msg(w, msg);
+}
+
 static void worker_notify_cb(evutil_socket_t fd, short events, void *arg)
 {
 	struct worker *w = arg;
+	bool stopping;
 
 	(void)events;
 
@@ -371,7 +422,7 @@ static void worker_notify_cb(evutil_socket_t fd, short events, void *arg)
 	worker_process_pending(w);
 
 	compat_mutex_lock(&w->pending_mu);
-	bool stopping = w->stopping;
+	stopping = w->stopping;
 	compat_mutex_unlock(&w->pending_mu);
 
 	if (stopping) {
