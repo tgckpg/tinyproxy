@@ -16,17 +16,27 @@ static int notify_worker(struct worker *w)
 	char byte = 1;
 	int rc;
 
-	(void)w;
-
 #ifdef _WIN32
 	rc = send(w->notify_send_fd, &byte, 1, 0);
 	if (rc == SOCKET_ERROR) {
-		return WSAGetLastError();
+		int err = WSAGetLastError();
+
+		if (err == WSAEWOULDBLOCK) {
+			return 0; /* already has pending wakeup */
+		}
+
+		return err;
 	}
 #else
 	rc = (int)send(w->notify_send_fd, &byte, 1, 0);
 	if (rc < 0) {
-		return errno;
+		int err = errno;
+
+		if (err == EAGAIN || err == EWOULDBLOCK) {
+			return 0; /* already has pending wakeup */
+		}
+
+		return err;
 	}
 #endif
 

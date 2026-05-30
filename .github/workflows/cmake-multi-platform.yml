@@ -45,7 +45,7 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all STATIC=1 CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic"
+          make clean all STATIC=1 EXTRA_CFLAGS="-Og -g3 -Wpedantic"
           cp bin/tinyproxy dist/debug/tinyproxy
 
           make clean all STATIC=1
@@ -138,6 +138,42 @@ jobs:
       - *package_unix
       - *upload_unix
 
+  freebsd-amd64:
+    name: FreeBSD amd64
+    runs-on: ubuntu-latest
+
+    steps:
+      - *checkout
+
+      - name: Build and test on FreeBSD
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.2"
+          usesh: true
+          prepare: |
+            pkg install -y gmake pkgconf libevent python3 haproxy
+          run: |
+            set -eu
+
+            gmake clean all EXTRA_CFLAGS="-Og -g3 -Wpedantic"
+            gmake test
+
+            gmake clean all
+
+            mkdir -p dist/tinyproxy
+            cp bin/tinyproxy dist/tinyproxy/
+            cp -r examples dist/tinyproxy/
+
+            tar -C dist -czf tinyproxy-freebsd-amd64.tar.gz tinyproxy
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tinyproxy-freebsd-amd64
+          path: tinyproxy-freebsd-amd64.tar.gz
+          if-no-files-found: error
+          retention-days: ${{ env.ARTIFACT_RETENTION_DAYS }}
+
   macos:
     name: macOS build
     runs-on: macos-15
@@ -156,7 +192,7 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all STATIC=0 CFLAGS="-Og -g3 -Wall -Wextra -Wpedantic" LDFLAGS=""
+          make clean all STATIC=0 EXTRA_CFLAGS="-Og -g3 -Wpedantic"
           cp bin/tinyproxy dist/debug/tinyproxy
 
           make clean all STATIC=0

@@ -19,7 +19,11 @@ EXEEXT := .exe
 WINDOWS_LDLIBS += -lws2_32
 endif
 
-CFLAGS ?= -O2 -DNDEBUG -Wall -Wextra -ffunction-sections -fdata-sections
+BASE_CFLAGS ?= -O2 -DNDEBUG -Wall -Wextra -ffunction-sections -fdata-sections
+
+CFLAGS += $(BASE_CFLAGS)
+CFLAGS += $(EXTRA_CFLAGS)
+
 CPPFLAGS += -I$(SRC_DIR)
 
 UNAME_S := $(shell uname)
@@ -34,9 +38,17 @@ else ifeq ($(OS),Windows_NT)
 STATIC ?= 0
 LDFLAGS += -Wl,--gc-sections
 TEST_FLAGS := CONCURRENCY=100 TOTAL=100 FD_LIMIT=512
+else ifeq ($(UNAME_S),FreeBSD)
+STATIC ?= 0
+CFLAGS += -pthread
+CPPFLAGS += -I/usr/local/include
+LDFLAGS += -pthread
+LDFLAGS += -L/usr/local/lib
+LDFLAGS += -Wl,--gc-sections
+TEST_FLAGS :=
 else
 STATIC ?= 1
-CFLAGS  += -pthread
+CFLAGS += -pthread
 LDFLAGS += -Wl,--gc-sections
 TEST_FLAGS :=
 endif
