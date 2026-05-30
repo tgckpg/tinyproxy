@@ -138,6 +138,45 @@ jobs:
       - *package_unix
       - *upload_unix
 
+  linux-riscv64:
+    name: Linux riscv64 (test only)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: riscv64
+
+      - name: Build and test under riscv64
+        run: |
+          docker run --rm \
+            --platform linux/riscv64 \
+            -v "$PWD:/work" \
+            -w /work \
+            riscv64/debian:unstable \
+            sh -euxc '
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                build-essential \
+                libevent-dev \
+                pkg-config \
+                python3 \
+                ca-certificates
+
+              make clean all
+
+              make test \
+                CONCURRENCY=20 \
+                TOTAL=20 \
+                FD_LIMIT=512 \
+                LARGE_ROUNDTRIP_SIZE=4096 \
+                SEQUENTIAL_CONNECTIONS=20
+            '
+
   freebsd-amd64:
     name: FreeBSD amd64
     runs-on: ubuntu-latest
@@ -271,6 +310,7 @@ jobs:
     needs:
       - linux-musl-x86_64
       - linux-musl-arm64
+      - freebsd-amd64
       - macos
       - windows
 
