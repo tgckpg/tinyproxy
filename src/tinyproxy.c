@@ -10,7 +10,7 @@
 #include "klog.h"
 #include "signals.h"
 #include "file_conf.h"
-#include "worker.h"
+#include "worker_pool.h"
 #include "route.h"
 #include "route_runtime.h"
 
@@ -53,6 +53,8 @@ int main(int argc, char **argv)
 	const char **inline_routes = NULL;
 	size_t inline_route_count = 0;
 	size_t inline_route_cap = 0;
+	bool worker_pool_ready = false;
+	bool worker_pool_started = false;
 
 #ifdef _WIN32
 	int wsa_started = 0;
@@ -112,7 +114,7 @@ int main(int argc, char **argv)
 				return 0;
 
 			case 'v':
-				fprintf(stdout, "tinyproxy v0.1.4\n");
+				fprintf(stdout, "tinyproxy v0.2.0\n");
 				free(inline_routes);
 				return 0;
 
@@ -216,10 +218,22 @@ int main(int argc, char **argv)
 	}
 	signals_started = 1;
 
-	struct worker w = {
-		.base = base,
-		.id = 0,
-	};
+	struct worker_pool wpool;
+	size_t worker_count = 1;
+
+	rc = worker_pool_init(&wpool, worker_count);
+	if (rc != 0) {
+		LOG_ERROR("failed to init worker pool", "err", _LOGV(rc));
+		goto out;
+	}
+	worker_pool_ready = true;
+
+	rc = worker_pool_start(&wpool);
+	if (rc != 0) {
+		LOG_ERROR("failed to start worker pool", "err", _LOGV(rc));
+		goto out;
+	}
+	worker_pool_started = true;
 
 	for (size_t i = 0; i < route_count; i++) {
 		const struct route *r = &routes[i];
@@ -234,7 +248,7 @@ int main(int argc, char **argv)
 			goto out;
 		}
 
-		rc = start_route(&w, r, &route_ctxs[route_ctx_count]);
+		rc = start_route(base, &wpool, r, &route_ctxs[route_ctx_count]);
 		if (rc == 0) {
 			route_ctx_count++;
 		}
@@ -260,6 +274,15 @@ int main(int argc, char **argv)
 out:
 	for (size_t i = 0; i < route_ctx_count; i++) {
 		stop_route(&route_ctxs[i]);
+	}
+
+	if (worker_pool_started) {
+		worker_pool_stop(&wpool);
+		worker_pool_join(&wpool);
+	}
+
+	if (worker_pool_ready) {
+		worker_pool_free(&wpool);
 	}
 
 	if (signals_started) {

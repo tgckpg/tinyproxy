@@ -14,7 +14,7 @@ struct evconnlistener;
 
 struct stream_route_ctx {
 	struct event_base *accept_base;
-	struct worker *worker;
+	struct worker_pool *worker_pool;
 	const struct route *route;
 	struct evconnlistener *listener;
 };
@@ -34,14 +34,23 @@ typedef struct conn_s {
 } conn_t;
 
 struct accepted_client {
+	const struct route *route;
 	evutil_socket_t fd;
+
 	struct sockaddr_storage peer_addr;
 	socklen_t peer_addr_len;
-	const struct route *route;
 };
 
-int start_stream_route(struct worker *w, const struct route *r,
-	struct stream_route_ctx *ctx);
+struct accepted_client_node {
+	struct accepted_client client;
+	struct accepted_client_node *next;
+};
+
+int start_stream_route(
+		struct event_base *accept_base,
+		struct worker_pool *wpool,
+		const struct route *r,
+		struct stream_route_ctx *ctx);
 
 void stop_stream_route(struct stream_route_ctx *ctx);
 

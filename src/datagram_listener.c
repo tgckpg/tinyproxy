@@ -8,86 +8,121 @@
 #include "datagram_client.h"
 #include "datagram_builtin.h"
 
+static int handle_datagram_builtin_packet(
+	struct datagram_route_ctx *ctx,
+	const struct datagram_packet *pkt)
+{
+	struct datagram_client tmp;
+	memset(&tmp, 0, sizeof(tmp));
+
+	tmp.ctx = ctx;
+	tmp.fd = EVUTIL_INVALID_SOCKET;
+	tmp.client_addr = pkt->peer_addr;
+	tmp.client_addr_len = pkt->peer_addr_len;
+	tmp.last_seen = time(NULL);
+
+	int rc = start_datagram_builtin(&tmp);
+	if (rc < 0) {
+		LOG_ERROR("udp builtin failed", "err", _LOGV(strerror(-rc)));
+	}
+	return rc;
+}
+
+static struct datagram_client* datagram_route_get_or_create_client(
+	struct datagram_route_ctx *ctx,
+	const struct datagram_packet *pkt)
+{
+	struct datagram_client *c = find_datagram_client(ctx, &pkt->peer_addr, pkt->peer_addr_len);
+	if (c == NULL) {
+		c = create_datagram_client(ctx, &pkt->peer_addr, pkt->peer_addr_len);
+		if (c == NULL) {
+			return c;
+		}
+	}
+	c->last_seen = time(NULL);
+	return c;
+}
+
+static int datagram_route_handle_packet(
+	struct datagram_route_ctx *ctx,
+	const struct datagram_packet *pkt)
+{
+	struct datagram_client *c;
+	int rc;
+
+	if (pkt->route->upstream.kind == ENDPOINT_BUILTIN) {
+		return handle_datagram_builtin_packet(ctx, pkt);
+	}
+
+	c = datagram_route_get_or_create_client(ctx, pkt);
+	if (!c) {
+		return -ENOMEM;
+	}
+
+	rc = send_datagram_payload_to_upstream(c, pkt->data, pkt->data_len);
+	if (rc != 0) {
+		LOG_WARN("failed to send datagram payload upstream", "err", _LOGV(strerror(-rc)));
+		return rc;
+	}
+
+	return 0;
+}
+
+static int dispatch_datagram_packet(
+	struct datagram_route_ctx *ctx,
+	const struct datagram_packet *pkt
+) {
+	/*
+	 * Datagram routes are pinned to ctx->base for now.
+	 * Later this function can choose a worker/shard.
+	 */
+	return datagram_route_handle_packet(ctx, pkt);
+}
+
 static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 {
-	(void)events;
-
 	struct datagram_route_ctx *ctx = arg;
+	struct datagram_packet pkt;
+	ssize_t n;
+
+	(void)events;
 
 	cleanup_idle_datagram_clients(ctx);
 
-	for (;;) {
-		unsigned char buf[UDP_MAX_PACKET];
+	memset(&pkt, 0, sizeof(pkt));
+	pkt.route = ctx->route;
+	pkt.listen_fd = fd;
+	pkt.peer_addr_len = sizeof(pkt.peer_addr);
 
-		struct sockaddr_storage client_addr;
-		socklen_t client_addr_len = sizeof(client_addr);
+	n = recvfrom(
+		fd,
+		(char *)pkt.data,
+		sizeof(pkt.data),
+		0,
+		(struct sockaddr *)&pkt.peer_addr,
+		&pkt.peer_addr_len
+	);
 
-		memset(&client_addr, 0, sizeof(client_addr));
+	if (n < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
 
-		ssize_t n = recvfrom(
-			fd,
-			(char *)buf,
-			sizeof(buf),
-			0,
-			(struct sockaddr *)&client_addr,
-			&client_addr_len
-		);
+		if (socket_err_is_retriable(err)) {
+			return;
+		}
 
-		if (n < 0) {
-			int err = EVUTIL_SOCKET_ERROR();
-
-			if (socket_err_is_retriable(err)) {
-				return;
-			}
-
-			LOG_ERROR("udp listen recv failed",
+		LOG_ERROR("udp listen recv failed",
 				"err", _LOGV(evutil_socket_error_to_string(err))
-			);
-			return;
-		}
+				);
+		return;
+	}
 
-		if (n == 0) {
-			continue;
-		}
+	pkt.data_len = (size_t)n;
 
-		if (ctx->route->upstream.kind == ENDPOINT_BUILTIN) {
-			struct datagram_client tmp;
-
-			memset(&tmp, 0, sizeof(tmp));
-			tmp.ctx = ctx;
-			tmp.fd = -1;
-			tmp.client_addr = client_addr;
-			tmp.client_addr_len = client_addr_len;
-			tmp.last_seen = time(NULL);
-
-			int rc = start_datagram_builtin(&tmp);
-			if (rc < 0) {
-				LOG_ERROR("udp builtin failed",
-						"err", _LOGV(evutil_socket_error_to_string(-rc))
-						);
-				return;
-			}
-
-			continue;
-		}
-
-		struct datagram_client *c = find_datagram_client(ctx, &client_addr, client_addr_len);
-		if (c == NULL) {
-			c = create_datagram_client(ctx, &client_addr, client_addr_len);
-			if (c == NULL) {
-				return;
-			}
-		}
-
-		c->last_seen = time(NULL);
-
-		int rc = send_datagram_payload_to_upstream(c, buf, (size_t)n);
-		if (rc < 0) {
-			LOG_ERROR("udp send to upstream failed",
-				"err", _LOGV(evutil_socket_error_to_string(-rc))
-			);
-			return;
-		}
+	int rc = dispatch_datagram_packet(ctx, &pkt);
+	if (rc != 0) {
+		LOG_WARN("failed to dispatch datagram packet",
+				"err", _LOGV(rc)
+				);
 	}
 }
 

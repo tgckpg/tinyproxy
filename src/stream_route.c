@@ -9,16 +9,19 @@
 #include "route.h"
 #include "stream_listener.h"
 
-int start_stream_route(struct worker *w, const struct route *r,
-	struct stream_route_ctx *ctx)
+int start_stream_route(
+		struct event_base *accept_base,
+		struct worker_pool *wpool,
+		const struct route *r,
+		struct stream_route_ctx *ctx)
 {
 	int rc;
 	char opts[128];
 
 	memset(ctx, 0, sizeof(*ctx));
 
-	ctx->accept_base = w->base;
-	ctx->worker = w;
+	ctx->accept_base = accept_base;
+	ctx->worker_pool = wpool;
 	ctx->route = r;
 
 	rc = bind_stream_listener(ctx);

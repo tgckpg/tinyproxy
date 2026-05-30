@@ -5,6 +5,7 @@
 
 #include "klog.h"
 #include "route.h"
+#include "worker_pool.h"
 #include "stream_listener.h"
 #include "stream_conn.h"
 
@@ -32,7 +33,16 @@ static void accept_cb(
 		return;
 	}
 
-	dispatch_client_fd(ctx->worker, &ac);
+	struct worker *w = worker_pool_next(ctx->worker_pool);
+	if (!w) {
+		LOG_ERROR("no worker available", "socklen", _LOGV(socklen));
+		evutil_closesocket(client_fd);
+		return;
+	}
+
+	if (dispatch_client_fd(w, &ac) != 0) {
+		evutil_closesocket(client_fd);
+	}
 }
 
 void accept_error_cb(struct evconnlistener *listener, void *arg)

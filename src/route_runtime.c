@@ -50,7 +50,11 @@ int validate_route(const struct route *r)
 	return -EINVAL;
 }
 
-int start_route(struct worker *w, const struct route *r, struct route_ctx *ctx)
+int start_route(
+		struct event_base *accept_base,
+		struct worker_pool *wp,
+		const struct route *r,
+		struct route_ctx *ctx)
 {
 	int rc;
 
@@ -61,7 +65,7 @@ int start_route(struct worker *w, const struct route *r, struct route_ctx *ctx)
 	if (endpoint_is_stream(&r->listen)) {
 		ctx->kind = ROUTE_CTX_STREAM;
 
-		rc = start_stream_route(w, r, &ctx->u.stream);
+		rc = start_stream_route(accept_base, wp, r, &ctx->u.stream);
 		if (rc != 0) {
 			ctx->kind = ROUTE_CTX_NONE;
 			memset(&ctx->u.stream, 0, sizeof(ctx->u.stream));
@@ -73,7 +77,7 @@ int start_route(struct worker *w, const struct route *r, struct route_ctx *ctx)
 	if (endpoint_is_datagram(&r->listen)) {
 		ctx->kind = ROUTE_CTX_DATAGRAM;
 
-		rc = start_datagram_route(w, r, &ctx->u.datagram);
+		rc = start_datagram_route(accept_base, wp, r, &ctx->u.datagram);
 		if (rc != 0) {
 			ctx->kind = ROUTE_CTX_NONE;
 			memset(&ctx->u.datagram, 0, sizeof(ctx->u.datagram));

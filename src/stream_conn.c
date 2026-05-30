@@ -265,7 +265,7 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 	}
 }
 
-static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
+void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));
 	if (conn == NULL) {
 		evutil_closesocket(ac->fd);
@@ -407,8 +407,15 @@ static void worker_adopt_client_fd(struct worker *w, struct accepted_client *ac)
 	bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
 }
 
-void dispatch_client_fd(struct worker *w, struct accepted_client *ac) {
-	worker_adopt_client_fd(w, ac);
+int dispatch_client_fd(struct worker *w, struct accepted_client *ac)
+{
+	return worker_enqueue_client_fd(
+		w,
+		ac->route,
+		ac->fd,
+		(const struct sockaddr *)&ac->peer_addr,
+		ac->peer_addr_len
+	);
 }
 
 #ifdef FUZZ

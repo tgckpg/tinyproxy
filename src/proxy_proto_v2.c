@@ -29,10 +29,6 @@ int proxy_v2_build(
 		return -EINVAL;
 	}
 
-	if (src_len < 0 || dst_len < 0) {
-		return -EINVAL;
-	}
-
 	if (src->sa_family != dst->sa_family) {
 		return -EAFNOSUPPORT;
 	}

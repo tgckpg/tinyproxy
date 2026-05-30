@@ -5,7 +5,6 @@
 
 #include "klog.h"
 #include "env.h"
-#include "worker.h"
 #include "route.h"
 #include "datagram_route.h"
 #include "datagram_listener.h"
@@ -31,10 +30,11 @@ static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 }
 
 int start_datagram_route(
-	struct worker *w,
-	const struct route *r,
-	struct datagram_route_ctx *ctx
-) {
+		struct event_base *accept_base,
+		struct worker_pool *wpool,
+		const struct route *r,
+		struct datagram_route_ctx *ctx)
+{
 	int rc;
 	char opts[128];
 
@@ -44,8 +44,8 @@ int start_datagram_route(
 
 	memset(ctx, 0, sizeof(*ctx));
 
-	ctx->base = w->base;
-	ctx->worker = w;
+	ctx->base = accept_base;
+	ctx->worker_pool = wpool;
 	ctx->route = r;
 	ctx->listen_fd = -1;
 
