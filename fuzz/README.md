@@ -1,5 +1,3 @@
-#!/bin/bash
-
 macos
 
 Fuzz for 8 hours

@@ -26,7 +26,8 @@ UNAME_S := $(shell uname)
 
 ifeq ($(UNAME_S),Darwin)
 STATIC ?= 0
-CFLAGS  += -pthread
+CFLAGS += -pthread
+CFLAGS += -Wno-gnu-zero-variadic-macro-arguments
 LDFLAGS += -Wl,-dead_strip
 TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
 else ifeq ($(OS),Windows_NT)

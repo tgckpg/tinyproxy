@@ -235,6 +235,11 @@ void worker_join(struct worker *w)
 	w->started = false;
 }
 
+static int socket_is_valid(evutil_socket_t fd)
+{
+    return fd != (evutil_socket_t)EVUTIL_INVALID_SOCKET;
+}
+
 void worker_free(struct worker *w)
 {
 	struct accepted_client_node *node;
@@ -250,7 +255,7 @@ void worker_free(struct worker *w)
 	while (node) {
 		struct accepted_client_node *next = node->next;
 
-		if (node->client.fd != EVUTIL_INVALID_SOCKET) {
+		if (socket_is_valid(node->client.fd)) {
 			evutil_closesocket(node->client.fd);
 		}
 
@@ -263,12 +268,12 @@ void worker_free(struct worker *w)
 		w->notify_event = NULL;
 	}
 
-	if (w->notify_recv_fd != EVUTIL_INVALID_SOCKET) {
+	if (socket_is_valid(w->notify_recv_fd)) {
 		evutil_closesocket(w->notify_recv_fd);
 		w->notify_recv_fd = EVUTIL_INVALID_SOCKET;
 	}
 
-	if (w->notify_send_fd != EVUTIL_INVALID_SOCKET) {
+	if (socket_is_valid(w->notify_send_fd)) {
 		evutil_closesocket(w->notify_send_fd);
 		w->notify_send_fd = EVUTIL_INVALID_SOCKET;
 	}
@@ -291,7 +296,7 @@ int worker_enqueue_client_fd(
 	struct accepted_client_node *node;
 	int rc;
 
-	if (!w || !route || fd == EVUTIL_INVALID_SOCKET) {
+	if (!w || !route || !socket_is_valid(fd)) {
 		return EINVAL;
 	}
 

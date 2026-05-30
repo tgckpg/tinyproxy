@@ -99,7 +99,7 @@ int main(int argc, char **argv)
 				worker_count = (int)n;
 
 				if(worker_count == 0) {
-					worker_count = compat_cpu_count();
+					worker_count = compat_cpu_count() - 1;
 				}
 
 				break;
