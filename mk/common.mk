@@ -41,6 +41,7 @@ TEST_FLAGS := CONCURRENCY=100 TOTAL=100 FD_LIMIT=512
 else ifeq ($(UNAME_S),FreeBSD)
 STATIC ?= 0
 CFLAGS += -pthread
+CFLAGS += -Wno-gnu-zero-variadic-macro-arguments
 CPPFLAGS += -I/usr/local/include
 LDFLAGS += -pthread
 LDFLAGS += -L/usr/local/lib

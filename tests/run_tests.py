@@ -25,7 +25,6 @@ from . import test_unix_listeners
 
 TCP_PROXY_TEST_MODULES = [
 	test_tcp_basic,
-	test_tcp_stress,
 ]
 
 UDP_PROXY_TEST_MODULES = [
@@ -33,6 +32,7 @@ UDP_PROXY_TEST_MODULES = [
 ]
 
 STANDALONE_TEST_MODULES = [
+	test_tcp_stress,
 	test_unix_listeners,
 	test_haproxy_proxy_v2,
 	test_udp_proxy_v2,

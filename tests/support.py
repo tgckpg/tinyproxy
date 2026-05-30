@@ -484,6 +484,7 @@ async def run_default_tcp_tinyproxy(proxy_bin: str):
 		async with run_tinyproxy_with_conf(
 			proxy_bin=proxy_bin,
 			conf_text=conf_text,
+			args=["-w", "2"],
 			listen_host=LISTEN_HOST,
 			listen_port=PROXY_PORT,
 			proto="tcp",
