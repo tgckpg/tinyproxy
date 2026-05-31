@@ -1,6 +1,8 @@
 #ifndef COMPAT_H
 #define COMPAT_H
 
+#include <stdint.h>
+
 #ifdef _WIN32
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -26,7 +28,6 @@
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 #include <unistd.h>
-
 
 #endif
 
