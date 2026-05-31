@@ -64,6 +64,4 @@ This project is still work in progress. Basic funtinoality works. (See tests)
 These are the major features I want to implement before calling it done. (going into maintainance mode)
 
 * Core
-  * pthread support (planned for v0.2.x)
-* Forwarding
   * IPv6 (planned for v0.2.x)
