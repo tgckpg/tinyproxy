@@ -282,6 +282,8 @@ jobs:
       - name: Package artifact
         shell: msys2 {0}
         run: |
+          set -eu
+
           mkdir -p dist/tinyproxy
 
           if [ -f bin/tinyproxy.exe ]; then
@@ -289,6 +291,41 @@ jobs:
           else
             cp bin/tinyproxy dist/tinyproxy/tinyproxy.exe
           fi
+
+          copy_deps() {
+            local file="$1"
+
+            ldd "$file" |
+              awk '
+                /=>/ {
+                  dll = $3
+                  if (dll ~ /^\/ucrt64\/bin\//) {
+                    print dll
+                  }
+                }
+                /^[[:space:]]*\/ucrt64\/bin\// {
+                  print $1
+                }
+              ' |
+              sort -u |
+              while read -r dll; do
+                base="$(basename "$dll")"
+
+                if [ ! -f "dist/tinyproxy/$base" ]; then
+                  echo "Copying DLL: $dll"
+                  cp "$dll" dist/tinyproxy/
+                  copy_deps "dist/tinyproxy/$base"
+                fi
+              done
+          }
+
+          echo "Runtime DLL dependencies:"
+          ldd dist/tinyproxy/tinyproxy.exe || true
+
+          copy_deps dist/tinyproxy/tinyproxy.exe
+
+          echo "Packaged files:"
+          find dist/tinyproxy -maxdepth 1 -type f -printf '%f\n' | sort
 
           powershell.exe -NoProfile -Command \
             "Compress-Archive -Path dist/tinyproxy -DestinationPath tinyproxy-windows-x64.zip -Force"
