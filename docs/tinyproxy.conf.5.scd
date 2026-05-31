@@ -35,16 +35,16 @@ connect_timeout=SECONDS
 	Default: 5
 
 broadcast_reply=listen
-    UDP only. Send upstream replies back to the original client from the listening endpoint.
+	UDP only. Send upstream replies back to the original client from the listening endpoint.
 
 broadcast_reply=upstream
-    UDP/IPv4 only. Forward broadcast requests to the configured upstream and
-    send upstream replies back to the original client using raw IPv4 packets
-    whose source address and port are the upstream endpoint.
+	UDP/IPv4 only. Forward broadcast requests to the configured upstream and
+	send upstream replies back to the original client using raw IPv4 packets
+	whose source address and port are the upstream endpoint.
 
-    This lets broadcast-based discovery advertise the upstream address directly,
-    so clients can connect to the upstream after discovery instead of sending
-    gameplay traffic through tinyproxy. Linux only; requires CAP_NET_RAW.
+	This lets broadcast-based discovery advertise the upstream address directly,
+	so clients can connect to the upstream after discovery instead of sending
+	gameplay traffic through tinyproxy. Linux only; requires CAP_NET_RAW.
 
 # ENDPOINTS
 

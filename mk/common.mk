@@ -10,6 +10,7 @@ PROJECT_ROOT ?= $(CURDIR)
 SRC_DIR ?= $(PROJECT_ROOT)/src
 BIN_DIR ?= $(PROJECT_ROOT)/bin
 BUILD_DIR ?= $(PROJECT_ROOT)/build
+STATIC ?= 0
 
 EXEEXT :=
 WINDOWS_LDLIBS :=
@@ -29,17 +30,14 @@ CPPFLAGS += -I$(SRC_DIR)
 UNAME_S := $(shell uname)
 
 ifeq ($(UNAME_S),Darwin)
-STATIC ?= 0
 CFLAGS += -pthread
 CFLAGS += -Wno-gnu-zero-variadic-macro-arguments
 LDFLAGS += -Wl,-dead_strip
 TEST_FLAGS := CONCURRENCY=1000 TOTAL=1000 FD_LIMIT=2560
 else ifeq ($(OS),Windows_NT)
-STATIC ?= 0
 LDFLAGS += -Wl,--gc-sections
 TEST_FLAGS := CONCURRENCY=100 TOTAL=100 FD_LIMIT=512
 else ifeq ($(UNAME_S),FreeBSD)
-STATIC ?= 0
 CFLAGS += -pthread
 CFLAGS += -Wno-gnu-zero-variadic-macro-arguments
 CPPFLAGS += -I/usr/local/include
@@ -48,7 +46,6 @@ LDFLAGS += -L/usr/local/lib
 LDFLAGS += -Wl,--gc-sections
 TEST_FLAGS :=
 else
-STATIC ?= 1
 CFLAGS += -pthread
 LDFLAGS += -Wl,--gc-sections
 TEST_FLAGS :=

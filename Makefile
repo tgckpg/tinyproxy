@@ -28,10 +28,16 @@ endif
 test: $(BIN)
 	$(TEST_FLAGS) python3 -m tests.run_tests $(BIN)
 
-clean:
+clean: clean-man
 	rm -rf $(BIN_DIR)
 
 distclean: clean clean-libevent
 	rm -rf $(BUILD_DIR)
 
-.PHONY: all clean distclean test strip
+install: install-man $(BIN)
+	cp -a bin/tinyproxy /usr/local/bin/tinyproxy
+
+uninstall: uninstall-man $(BIN)
+	rm -f /usr/local/bin/tinyproxy
+
+.PHONY: all clean distclean test strip install uninstall
