@@ -34,6 +34,9 @@ connect_timeout=SECONDS
 	Connection timeout for both listen and upstream.
 	Default: 5
 
+broadcast_reply
+	UDP only. Forward broadcast packets to the upstream and relay replies from the listening endpoint.
+
 # ENDPOINTS
 
 unix /tmp/backend.sock
