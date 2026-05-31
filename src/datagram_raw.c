@@ -5,15 +5,11 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef _WIN32
-#include <arpa/inet.h>
-#include <netinet/ip.h>
-#include <netinet/udp.h>
-#include <sys/socket.h>
-#include <unistd.h>
-#endif
-
+#include "klog.h"
+#include "compat.h"
 #include "endpoint.h"
+
+#if COMPAT_HAS_IPV4_RAW
 
 static uint16_t checksum16(const void *data, size_t len)
 {
@@ -36,8 +32,6 @@ static uint16_t checksum16(const void *data, size_t len)
 
 	return (uint16_t)~sum;
 }
-
-#ifndef _WIN32
 
 int datagram_raw_open_ipv4(evutil_socket_t *out_fd)
 {
@@ -142,9 +136,9 @@ int datagram_raw_send_udp_ipv4(
 	ip->ip_v = 4;
 	ip->ip_hl = 5;
 	ip->ip_tos = 0;
-	ip->ip_len = htons((uint16_t)packet_len);
+	ip->ip_len = compat_raw_ip_len((uint16_t)packet_len);
 	ip->ip_id = 0;
-	ip->ip_off = 0;
+	ip->ip_off = compat_raw_ip_off(0);
 	ip->ip_ttl = 64;
 	ip->ip_p = IPPROTO_UDP;
 	ip->ip_src = src_addr.sin_addr;
@@ -210,11 +204,12 @@ int datagram_raw_send_udp_ipv4(
 	size_t data_len)
 {
 	(void)raw_fd;
-	(void)src_ap;
+	(void)src_ep;
 	(void)dst_addr;
 	(void)dst_addr_len;
 	(void)data;
 	(void)data_len;
+	LOG_ERROR("IPv4 raw is not supported on this platform");
 
 	return -ENOTSUP;
 }

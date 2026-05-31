@@ -23,7 +23,10 @@
 #include <sys/un.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/udp.h>
 #include <unistd.h>
+
 
 #endif
 
@@ -60,5 +63,41 @@ static inline int compat_mkdir(const char *path, int mode)
 	return mkdir(path, mode);
 #endif
 }
+
+static inline uint16_t compat_raw_ip_len(uint16_t len)
+{
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+	return len;
+#else
+	return htons(len);
+#endif
+}
+
+static inline uint16_t compat_raw_ip_off(uint16_t off)
+{
+#if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
+	return off;
+#else
+	return htons(off);
+#endif
+}
+
+#if defined(AF_INET) && \
+	defined(SOCK_RAW) && \
+	defined(IPPROTO_RAW) && \
+	defined(IPPROTO_IP) && \
+	defined(IP_HDRINCL)
+#define COMPAT_HAS_IPV4_RAW 1
+#else
+#define COMPAT_HAS_IPV4_RAW 0
+#endif
+
+#if !COMPAT_HAS_IPV4_RAW
+#if defined(_MSC_VER)
+#pragma message("info: IPv4 raw socket support not available; raw datagram features disabled")
+#elif defined(__clang__) || defined(__GNUC__)
+#pragma message "info: IPv4 raw socket support not available; raw datagram features disabled"
+#endif
+#endif
 
 #endif

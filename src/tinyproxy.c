@@ -289,8 +289,9 @@ int main(int argc, char **argv)
 			LOG_ERROR("failed to start route",
 					"line", _LOGV(r->line_no),
 					"listen", _LOGV_ENDPOINT(&r->listen),
-					"upstream", _LOGV_ENDPOINT(&r->upstream)
-					);
+					"upstream", _LOGV_ENDPOINT(&r->upstream),
+					"reason", _LOGV(strerror(-rc))
+			);
 			goto out;
 		}
 	}
