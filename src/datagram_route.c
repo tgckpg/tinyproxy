@@ -52,6 +52,11 @@ int start_datagram_route(
 	ctx->raw_fd = EVUTIL_INVALID_SOCKET;
 
 	if (r->opts.broadcast_reply == BROADCAST_REPLY_UPSTREAM) {
+#ifdef _WIN32
+		LOG_WARN("broadcast_reply=upstream may not work on Windows",
+				"reason", _LOGV("Winsock may block raw UDP packets with a non-local source address")
+				);
+#endif
 		rc = datagram_raw_open_ipv4(&ctx->raw_fd);
 		if (rc != 0) {
 			return rc;
