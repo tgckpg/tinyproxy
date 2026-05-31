@@ -278,11 +278,6 @@ void worker_join(struct worker *w)
 	w->started = false;
 }
 
-static int socket_is_valid(evutil_socket_t fd)
-{
-    return fd != (evutil_socket_t)EVUTIL_INVALID_SOCKET;
-}
-
 static void worker_process_pending(struct worker *w)
 {
 	struct worker_msg *msg = worker_take_pending(w);

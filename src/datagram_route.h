@@ -27,6 +27,8 @@ struct datagram_route_ctx {
 	socklen_t local_addr_len;
 
 	struct datagram_client *clients;
+
+	evutil_socket_t raw_fd;
 };
 
 int start_datagram_route(
@@ -37,5 +39,10 @@ int start_datagram_route(
 
 void stop_datagram_route_listener(struct datagram_route_ctx *ctx);
 void free_datagram_route(struct datagram_route_ctx *ctx);
+
+static inline int socket_is_valid(evutil_socket_t fd)
+{
+    return fd != (evutil_socket_t)EVUTIL_INVALID_SOCKET;
+}
 
 #endif

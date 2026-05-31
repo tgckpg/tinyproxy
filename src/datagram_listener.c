@@ -7,6 +7,7 @@
 #include "datagram_listener.h"
 #include "datagram_client.h"
 #include "datagram_builtin.h"
+#include "datagram_raw.h"
 
 #ifdef TINYPROXY_DEBUG
 #include <stdlib.h>
@@ -96,6 +97,23 @@ int datagram_route_handle_packet(
 		return handle_datagram_builtin_packet(pkt);
 	}
 
+	if (ctx->route->opts.transparent_replay) {
+		rc = datagram_raw_replay_ipv4(
+				ctx->raw_fd,
+				ctx->route,
+				(const struct sockaddr *)&pkt->peer_addr,
+				pkt->peer_addr_len,
+				pkt->data,
+				pkt->data_len);
+
+		if (rc != 0) {
+			LOG_WARN("failed to replay datagram",
+					"err", _LOGV(strerror(-rc)));
+		}
+
+		return rc;
+	}
+
 	compat_mutex_lock(&ctx->clients_mu);
 
 	c = datagram_route_get_or_create_client(w, pkt);
@@ -113,7 +131,9 @@ out:
 
 	if (rc != 0) {
 		LOG_WARN("failed to send datagram payload upstream",
-			"err", _LOGV(strerror(-rc)));
+				"listen", _LOGV_ENDPOINT(&ctx->route->listen),
+				"upstream", _LOGV_ENDPOINT(&ctx->route->upstream),
+				"err", _LOGV(strerror(-rc)));
 	}
 
 	return rc;

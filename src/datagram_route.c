@@ -9,6 +9,7 @@
 #include "datagram_route.h"
 #include "datagram_listener.h"
 #include "datagram_client.h"
+#include "datagram_raw.h"
 
 static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 {
@@ -24,6 +25,10 @@ static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 			);
 			return -errno;
 		}
+	}
+
+	if (r->opts.transparent_replay) {
+		return datagram_raw_open_ipv4(&ctx->raw_fd);
 	}
 
 	return 0;
@@ -48,6 +53,7 @@ int start_datagram_route(
 	ctx->worker_pool = wpool;
 	ctx->route = r;
 	ctx->listen_fd = EVUTIL_INVALID_SOCKET;
+	ctx->raw_fd = -1;
 
 	rc = compat_mutex_init(&ctx->clients_mu);
 	if (rc != 0) {
@@ -163,6 +169,11 @@ void free_datagram_route(struct datagram_route_ctx *ctx)
 	}
 
 	compat_mutex_unlock(&ctx->clients_mu);
+
+	if (socket_is_valid(ctx->raw_fd)) {
+		evutil_closesocket(ctx->raw_fd);
+		ctx->raw_fd = -1;
+	}
 
 	if (ctx->listen_ev) {
 		event_free(ctx->listen_ev);
