@@ -16,14 +16,19 @@
 
 #define UDP_MAX_PACKET 65535
 
+enum broadcast_reply_mode {
+	BROADCAST_REPLY_OFF = 0,
+	BROADCAST_REPLY_LISTEN,
+	BROADCAST_REPLY_UPSTREAM,
+};
+
 struct route_options {
 	bool proxy_v2;
 	bool keep_alive;
-	bool broadcast_reply;
-	bool transparent_replay;
 
 	int idle_timeout_sec;
 	int connect_timeout_sec;
+	enum broadcast_reply_mode broadcast_reply;
 };
 
 struct route {

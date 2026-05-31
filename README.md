@@ -31,7 +31,7 @@ Makes a remote Minecraft Bedrock server appear as a LAN server.
 
 ```sh
 tinyproxy \
-    -L "udp :19132 udp 123.123.123.123:19132 broadcast_reply"
+    -L "udp :19132 udp 123.123.123.123:19132 broadcast_reply=listen"
 ```
 
 Run with config file:

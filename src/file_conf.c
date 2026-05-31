@@ -150,6 +150,27 @@ static int parse_proto(const char *s, enum endpoint_proto *out)
 	return -1;
 }
 
+static int parse_broadcast_reply_mode(
+	const char *value,
+	enum broadcast_reply_mode *out)
+{
+	if (!value || !out) {
+		return -EINVAL;
+	}
+
+	if (strcmp(value, "listen") == 0) {
+		*out = BROADCAST_REPLY_LISTEN;
+		return 0;
+	}
+
+	if (strcmp(value, "upstream") == 0) {
+		*out = BROADCAST_REPLY_UPSTREAM;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static int parse_positive_int(const char *s, int *out)
 {
 	char *end = NULL;
@@ -192,6 +213,16 @@ static int parse_route_options(char *s, struct route_options *opts)
 		} \
 	} while (0)
 
+#define PARSE_ENUM_OPT(name, parser, field) do { \
+		if (strcmp(key, name) == 0) { \
+			int rc = parser(value, &opts->field); \
+			if (rc != 0) { \
+				return rc; \
+			} \
+			goto next_option; \
+		} \
+	} while (0)
+
 #define PARSE_BOOL_OPT(name, field) do { \
 		if (strcmp(tok, name) == 0) { \
 			opts->field = true; \
@@ -225,13 +256,20 @@ static int parse_route_options(char *s, struct route_options *opts)
 
 			PARSE_INT_OPT("idle_timeout", idle_timeout_sec);
 			PARSE_INT_OPT("connect_timeout", connect_timeout_sec);
+			PARSE_ENUM_OPT("broadcast_reply",
+				parse_broadcast_reply_mode,
+				broadcast_reply);
 
 			return -EINVAL;
 		}
 
 		PARSE_BOOL_OPT("proxy_v2", proxy_v2);
 		PARSE_BOOL_OPT("keep_alive", keep_alive);
-		PARSE_BOOL_OPT("broadcast_reply", broadcast_reply);
+
+		if (strcmp(tok, "broadcast_reply") == 0) {
+			opts->broadcast_reply = BROADCAST_REPLY_LISTEN;
+			goto next_option;
+		}
 
 		return -EINVAL;
 
@@ -240,6 +278,7 @@ next_option:
 	}
 
 #undef PARSE_BOOL_OPT
+#undef PARSE_ENUM_OPT
 #undef PARSE_INT_OPT
 
 	return 0;

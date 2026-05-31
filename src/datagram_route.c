@@ -27,10 +27,6 @@ static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 		}
 	}
 
-	if (r->opts.transparent_replay) {
-		return datagram_raw_open_ipv4(&ctx->raw_fd);
-	}
-
 	return 0;
 }
 
@@ -53,7 +49,14 @@ int start_datagram_route(
 	ctx->worker_pool = wpool;
 	ctx->route = r;
 	ctx->listen_fd = EVUTIL_INVALID_SOCKET;
-	ctx->raw_fd = -1;
+	ctx->raw_fd = EVUTIL_INVALID_SOCKET;
+
+	if (r->opts.broadcast_reply == BROADCAST_REPLY_UPSTREAM) {
+		rc = datagram_raw_open_ipv4(&ctx->raw_fd);
+		if (rc != 0) {
+			return rc;
+		}
+	}
 
 	rc = compat_mutex_init(&ctx->clients_mu);
 	if (rc != 0) {

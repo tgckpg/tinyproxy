@@ -8,6 +8,7 @@
 #include "env.h"
 #include "route.h"
 #include "datagram_client.h"
+#include "datagram_raw.h"
 #include "proxy_proto_v2.h"
 
 void free_datagram_client(struct datagram_client *c)
@@ -262,6 +263,44 @@ int send_datagram_payload_to_upstream(
 	return 0;
 }
 
+static int send_datagram_payload_to_client(
+	struct datagram_client *c,
+	const unsigned char *data,
+	size_t data_len)
+{
+	struct datagram_route_ctx *ctx = c->ctx;
+	ssize_t sent;
+
+	if (ctx->route->opts.broadcast_reply == BROADCAST_REPLY_UPSTREAM) {
+		return datagram_raw_send_udp_ipv4(
+			ctx->raw_fd,
+			&ctx->route->upstream,
+			(const struct sockaddr *)&c->client_addr,
+			c->client_addr_len,
+			data,
+			data_len);
+	}
+
+	sent = sendto(
+		ctx->listen_fd,
+		(const char *)data,
+		data_len,
+		0,
+		(const struct sockaddr *)&c->client_addr,
+		c->client_addr_len
+	);
+
+	if (sent < 0) {
+		return -EVUTIL_SOCKET_ERROR();
+	}
+
+	if ((size_t)sent != data_len) {
+		return -EIO;
+	}
+
+	return 0;
+}
+
 static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 {
 	struct datagram_client *c = arg;
@@ -273,7 +312,10 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 	compat_mutex_lock(&ctx->clients_mu);
 
 	for (;;) {
-		ssize_t n = recv(fd, (char *)buf, sizeof(buf), 0);
+		ssize_t n;
+		int rc;
+
+		n = recv(fd, (char *)buf, sizeof(buf), 0);
 		if (n < 0) {
 			int err = EVUTIL_SOCKET_ERROR();
 
@@ -291,20 +333,10 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 			goto out;
 		}
 
-		ssize_t sent = sendto(
-			ctx->listen_fd,
-			(const char *)buf,
-			(size_t)n,
-			0,
-			(const struct sockaddr *)&c->client_addr,
-			c->client_addr_len
-		);
-
-		if (sent < 0) {
-			int err = EVUTIL_SOCKET_ERROR();
-
+		rc = send_datagram_payload_to_client(c, buf, (size_t)n);
+		if (rc != 0) {
 			LOG_ERROR("udp send to client failed",
-				"err", _LOGV(evutil_socket_error_to_string(err))
+				"err", _LOGV(strerror(-rc))
 			);
 			goto out;
 		}

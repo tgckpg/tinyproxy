@@ -51,6 +51,17 @@ void route_options_str(const struct route_options *opts, char *buf, size_t bufle
 	ADD_INT("connect_timeout", opts->connect_timeout_sec);
 	ADD_BOOL("keep_alive", opts->keep_alive);
 
+	switch (opts->broadcast_reply) {
+		case BROADCAST_REPLY_OFF:
+			break;
+		case BROADCAST_REPLY_LISTEN:
+			ADD_FMT("%s=%s", "broadcast_reply", "listen");
+			break;
+		case BROADCAST_REPLY_UPSTREAM:
+			ADD_FMT("%s=%s", "broadcast_reply", "upstream");
+			break;
+	}
+
 #undef ADD_INT
 #undef ADD_BOOL
 #undef ADD_FMT
