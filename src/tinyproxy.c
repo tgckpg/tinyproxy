@@ -48,6 +48,7 @@ static void prevent_socket_write_from_killing_process(void)
 int main(int argc, char **argv)
 {
 	prevent_socket_write_from_killing_process();
+	klog_init();
 	klog_set_worker_id(0);
 
 	int opt;
@@ -304,12 +305,16 @@ int main(int argc, char **argv)
 
 out:
 	for (size_t i = 0; i < route_ctx_count; i++) {
-		stop_route(&route_ctxs[i]);
+		stop_route_listeners(&route_ctxs[i]);
 	}
 
 	if (worker_pool_started) {
 		worker_pool_stop(&wpool);
 		worker_pool_join(&wpool);
+	}
+
+	for (size_t i = 0; i < route_ctx_count; i++) {
+		free_route(&route_ctxs[i]);
 	}
 
 	if (worker_pool_ready) {
@@ -328,6 +333,7 @@ out:
 
 	free(routes);
 	free(inline_routes);
+	klog_free();
 
 #ifdef _WIN32
 	if (wsa_started) {

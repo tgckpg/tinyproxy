@@ -94,7 +94,7 @@ int start_route(
 	return -EINVAL;
 }
 
-void stop_route(struct route_ctx *ctx)
+void stop_route_listeners(struct route_ctx *ctx)
 {
 	if (ctx == NULL) {
 		return;
@@ -102,11 +102,32 @@ void stop_route(struct route_ctx *ctx)
 
 	switch (ctx->kind) {
 	case ROUTE_CTX_STREAM:
-		stop_stream_route(&ctx->u.stream);
+		stop_stream_route_listener(&ctx->u.stream);
 		break;
 
 	case ROUTE_CTX_DATAGRAM:
-		stop_datagram_route(&ctx->u.datagram);
+		stop_datagram_route_listener(&ctx->u.datagram);
+		break;
+
+	case ROUTE_CTX_NONE:
+	default:
+		break;
+	}
+}
+
+void free_route(struct route_ctx *ctx)
+{
+	if (ctx == NULL) {
+		return;
+	}
+
+	switch (ctx->kind) {
+	case ROUTE_CTX_STREAM:
+		free_stream_route(&ctx->u.stream);
+		break;
+
+	case ROUTE_CTX_DATAGRAM:
+		free_datagram_route(&ctx->u.datagram);
 		break;
 
 	case ROUTE_CTX_NONE:

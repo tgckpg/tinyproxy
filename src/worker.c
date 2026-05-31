@@ -360,6 +360,8 @@ void worker_free(struct worker *w)
 		event_base_free(w->base);
 		w->base = NULL;
 	}
+
+	klog_free();
 }
 
 static int worker_enqueue_msg(struct worker *w, struct worker_msg *msg)
@@ -442,7 +444,6 @@ int worker_enqueue_stream_client(
 int worker_enqueue_datagram_packet(
 	struct worker *w,
 	struct datagram_route_ctx *ctx,
-	evutil_socket_t listen_fd,
 	const struct sockaddr *peer_addr,
 	socklen_t peer_addr_len,
 	const unsigned char *data,
@@ -451,7 +452,7 @@ int worker_enqueue_datagram_packet(
 	struct worker_msg *msg;
 	const struct route *route = ctx->route;
 
-	if (!w || !route || !socket_is_valid(listen_fd)) {
+	if (!w || !route || !socket_is_valid(ctx->listen_fd)) {
 		return EINVAL;
 	}
 

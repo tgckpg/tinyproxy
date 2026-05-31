@@ -30,10 +30,10 @@ static int prepare_datagram_route(struct datagram_route_ctx *ctx)
 }
 
 int start_datagram_route(
-		struct event_base *accept_base,
-		struct worker_pool *wpool,
-		const struct route *r,
-		struct datagram_route_ctx *ctx)
+	struct event_base *accept_base,
+	struct worker_pool *wpool,
+	const struct route *r,
+	struct datagram_route_ctx *ctx)
 {
 	int rc;
 	char opts[128];
@@ -47,17 +47,24 @@ int start_datagram_route(
 	ctx->base = accept_base;
 	ctx->worker_pool = wpool;
 	ctx->route = r;
-	ctx->listen_fd = -1;
+	ctx->listen_fd = EVUTIL_INVALID_SOCKET;
+
+	rc = compat_mutex_init(&ctx->clients_mu);
+	if (rc != 0) {
+		memset(ctx, 0, sizeof(*ctx));
+		ctx->listen_fd = EVUTIL_INVALID_SOCKET;
+		return rc;
+	}
 
 	rc = prepare_datagram_route(ctx);
 	if (rc != 0) {
-		memset(ctx, 0, sizeof(*ctx));
+		free_datagram_route(ctx);
 		return rc;
 	}
 
 	rc = bind_datagram_listener(ctx);
 	if (rc != 0) {
-		stop_datagram_route(ctx);
+		free_datagram_route(ctx);
 		return rc;
 	}
 
@@ -121,33 +128,58 @@ static void stop_unix_datagram_route(struct datagram_route_ctx *ctx)
 }
 #endif
 
-void stop_datagram_route(struct datagram_route_ctx *ctx)
+void stop_datagram_route_listener(struct datagram_route_ctx *ctx)
 {
 	if (ctx == NULL) {
 		return;
 	}
 
-	while (ctx->clients != NULL) {
-		struct datagram_client *c = ctx->clients;
+	if (ctx->listen_ev) {
+		event_free(ctx->listen_ev);
+		ctx->listen_ev = NULL;
+	}
+
+	/*
+	 * Do NOT close ctx->listen_fd here.
+	 * Workers may still use it to send UDP replies.
+	 */
+}
+
+void free_datagram_route(struct datagram_route_ctx *ctx)
+{
+	struct datagram_client *c;
+
+	if (!ctx) {
+		return;
+	}
+
+	compat_mutex_lock(&ctx->clients_mu);
+
+	while (ctx->clients) {
+		c = ctx->clients;
 		ctx->clients = c->next;
 		c->next = NULL;
 		free_datagram_client(c);
 	}
 
-	if (ctx->listen_ev != NULL) {
+	compat_mutex_unlock(&ctx->clients_mu);
+
+	if (ctx->listen_ev) {
 		event_free(ctx->listen_ev);
 		ctx->listen_ev = NULL;
+	}
+
+	if (ctx->listen_fd != EVUTIL_INVALID_SOCKET) {
+		evutil_closesocket(ctx->listen_fd);
+		ctx->listen_fd = EVUTIL_INVALID_SOCKET;
 	}
 
 #ifndef _WIN32
 	stop_unix_datagram_route(ctx);
 #endif
 
-	if (ctx->listen_fd >= 0) {
-		evutil_closesocket(ctx->listen_fd);
-		ctx->listen_fd = -1;
-	}
+	compat_mutex_destroy(&ctx->clients_mu);
 
 	memset(ctx, 0, sizeof(*ctx));
-	ctx->listen_fd = -1;
+	ctx->listen_fd = EVUTIL_INVALID_SOCKET;
 }

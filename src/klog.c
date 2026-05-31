@@ -6,8 +6,35 @@
 
 #include "klog.h"
 #include "route.h"
+#include "compat_thread.h"
 
+static compat_mutex_t log_mu;
+static int log_mu_ready;
 static _Thread_local int klog_worker_id = -1;
+
+int klog_init(void)
+{
+	if (log_mu_ready) {
+		return 0;
+	}
+
+	if (compat_mutex_init(&log_mu) != 0) {
+		return errno ? errno : EINVAL;
+	}
+
+	log_mu_ready = 1;
+	return 0;
+}
+
+void klog_free(void)
+{
+	if (!log_mu_ready) {
+		return;
+	}
+
+	compat_mutex_destroy(&log_mu);
+	log_mu_ready = 0;
+}
 
 void klog_set_worker_id(int id)
 {
@@ -104,6 +131,9 @@ void log_at(char sev, const char *file, int line, const char *msg, ...)
 #ifdef FUZZ
 	return;
 #endif
+	if (log_mu_ready) {
+		compat_mutex_lock(&log_mu);
+	}
 
 	struct timespec ts;
 	struct tm tm;
@@ -145,4 +175,8 @@ void log_at(char sev, const char *file, int line, const char *msg, ...)
 	va_end(ap);
 
 	fputc('\n', stderr);
+
+	if (log_mu_ready) {
+		compat_mutex_unlock(&log_mu);
+	}
 }

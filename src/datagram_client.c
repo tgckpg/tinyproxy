@@ -50,6 +50,8 @@ static int sockaddr_equal(
 
 void cleanup_idle_datagram_clients(struct datagram_route_ctx *ctx)
 {
+	compat_mutex_lock(&ctx->clients_mu);
+
 	time_t now = time(NULL);
 	struct datagram_client **pp = &ctx->clients;
 
@@ -71,6 +73,8 @@ void cleanup_idle_datagram_clients(struct datagram_route_ctx *ctx)
 
 		free_datagram_client(c);
 	}
+
+	compat_mutex_unlock(&ctx->clients_mu);
 }
 
 struct datagram_client *find_datagram_client(
@@ -260,12 +264,13 @@ int send_datagram_payload_to_upstream(
 
 static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 {
+	struct datagram_client *c = arg;
+	struct datagram_route_ctx *ctx = c->ctx;
+	unsigned char buf[UDP_MAX_PACKET];
+
 	(void)events;
 
-	struct datagram_client *c = arg;
-	const struct datagram_route_ctx *ctx = c->ctx;
-
-	unsigned char buf[UDP_MAX_PACKET];
+	compat_mutex_lock(&ctx->clients_mu);
 
 	for (;;) {
 		ssize_t n = recv(fd, (char *)buf, sizeof(buf), 0);
@@ -273,17 +278,17 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 			int err = EVUTIL_SOCKET_ERROR();
 
 			if (socket_err_is_retriable(err)) {
-				return;
+				goto out;
 			}
 
-			LOG_ERROR("udp recvfrom failed",
+			LOG_ERROR("udp upstream recv failed",
 				"err", _LOGV(evutil_socket_error_to_string(err))
 			);
-			return;
+			goto out;
 		}
 
 		if (n == 0) {
-			return;
+			goto out;
 		}
 
 		ssize_t sent = sendto(
@@ -301,9 +306,12 @@ static void upstream_read_cb(evutil_socket_t fd, short events, void *arg)
 			LOG_ERROR("udp send to client failed",
 				"err", _LOGV(evutil_socket_error_to_string(err))
 			);
-			return;
+			goto out;
 		}
 	}
+
+out:
+	compat_mutex_unlock(&ctx->clients_mu);
 }
 
 struct datagram_client *create_datagram_client(
@@ -357,10 +365,46 @@ struct datagram_client *create_datagram_client(
 	c->next = ctx->clients;
 	ctx->clients = c;
 
+#ifdef TINYPROXY_DEBUG
+{
+	struct sockaddr_storage local_addr;
+	socklen_t local_addr_len = sizeof(local_addr);
+	char client_buf[128];
+	char local_buf[128];
+
+	memset(&local_addr, 0, sizeof(local_addr));
+
+	if (getsockname(
+			c->fd,
+			(struct sockaddr *)&local_addr,
+			&local_addr_len
+		) == 0) {
+		LOG_DEBUG("udp upstream socket created",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"client", _LOGV_SOCKADDR(&c->client_addr, c->client_addr_len,
+				client_buf, sizeof(client_buf)),
+			"upstream_local", _LOGV_SOCKADDR(&local_addr, local_addr_len,
+				local_buf, sizeof(local_buf)),
+			"fd", _LOGV(c->fd)
+		);
+	} else {
+		LOG_DEBUG("udp upstream socket created",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"client_family", _LOGV(c->client_addr.ss_family),
+			"client_len", _LOGV(c->client_addr_len),
+			"fd", _LOGV(c->fd),
+			"getsockname_err", _LOGV(evutil_socket_error_to_string(EVUTIL_SOCKET_ERROR()))
+		);
+	}
+}
+#else
 	LOG_INFO("udp client created",
 		"client_family", _LOGV(c->client_addr.ss_family),
 		"client_len", _LOGV(c->client_addr_len)
 	);
+#endif
 
 	return c;
 }

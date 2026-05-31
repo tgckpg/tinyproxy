@@ -39,6 +39,7 @@ int start_stream_route(
 		const struct route *r,
 		struct stream_route_ctx *ctx);
 
-void stop_stream_route(struct stream_route_ctx *ctx);
+void stop_stream_route_listener(struct stream_route_ctx *ctx);
+void free_stream_route(struct stream_route_ctx *ctx);
 
 #endif

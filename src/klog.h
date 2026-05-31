@@ -2,7 +2,11 @@
 #define KLOG_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+
+#include "compat.h"
 
 struct endpoint;
 
@@ -33,6 +37,8 @@ struct log_value {
 
 void klog_set_worker_id(int id);
 
+int klog_init(void);
+void klog_free(void);
 void log_at(char sev, const char *file, int line, const char *msg, ...);
 
 static inline struct log_value log_value_str(const char *v)
@@ -92,6 +98,102 @@ static inline struct log_value log_value_endpoint(const struct endpoint *v)
 	)(v)
 
 #define _LOGV_ENDPOINT(v) log_value_endpoint(v)
+
+#ifndef TINYPROXY_SOCKADDR_FORMAT_BUFSIZE
+#define TINYPROXY_SOCKADDR_FORMAT_BUFSIZE 128
+#endif
+
+static inline const char *sockaddr_format(
+	const struct sockaddr *addr,
+	socklen_t addr_len,
+	char *buf,
+	size_t buf_len)
+{
+	if (!buf || buf_len == 0) {
+		return "";
+	}
+
+	buf[0] = '\0';
+
+	if (!addr || addr_len == 0) {
+		snprintf(buf, buf_len, "<null>");
+		return buf;
+	}
+
+	switch (addr->sa_family) {
+	case AF_INET: {
+		const struct sockaddr_in *in = (const struct sockaddr_in *)addr;
+		char ip[INET_ADDRSTRLEN];
+
+		if (addr_len < sizeof(*in)) {
+			snprintf(buf, buf_len, "inet:<short:%u>", (unsigned)addr_len);
+			return buf;
+		}
+
+		if (!inet_ntop(AF_INET, &in->sin_addr, ip, sizeof(ip))) {
+			snprintf(buf, buf_len, "inet:<invalid>:%u",
+				(unsigned)ntohs(in->sin_port));
+			return buf;
+		}
+
+		snprintf(buf, buf_len, "%s:%u",
+			ip,
+			(unsigned)ntohs(in->sin_port));
+		return buf;
+	}
+
+#ifdef AF_INET6
+	case AF_INET6: {
+		const struct sockaddr_in6 *in6 = (const struct sockaddr_in6 *)addr;
+		char ip[INET6_ADDRSTRLEN];
+
+		if (addr_len < sizeof(*in6)) {
+			snprintf(buf, buf_len, "inet6:<short:%u>", (unsigned)addr_len);
+			return buf;
+		}
+
+		if (!inet_ntop(AF_INET6, &in6->sin6_addr, ip, sizeof(ip))) {
+			snprintf(buf, buf_len, "inet6:<invalid>:%u",
+				(unsigned)ntohs(in6->sin6_port));
+			return buf;
+		}
+
+		snprintf(buf, buf_len, "[%s]:%u",
+			ip,
+			(unsigned)ntohs(in6->sin6_port));
+		return buf;
+	}
+#endif
+
+#ifndef _WIN32
+	case AF_UNIX: {
+		const struct sockaddr_un *un = (const struct sockaddr_un *)addr;
+
+		if (addr_len < sizeof(un->sun_family)) {
+			snprintf(buf, buf_len, "unix:<short:%u>", (unsigned)addr_len);
+			return buf;
+		}
+
+		if (un->sun_path[0] == '\0') {
+			snprintf(buf, buf_len, "unix:<abstract-or-empty>");
+			return buf;
+		}
+
+		snprintf(buf, buf_len, "unix:%s", un->sun_path);
+		return buf;
+	}
+#endif
+
+	default:
+		snprintf(buf, buf_len, "family:%d len:%u",
+			(int)addr->sa_family,
+			(unsigned)addr_len);
+		return buf;
+	}
+}
+
+#define _LOGV_SOCKADDR(addr, addr_len, buf, buf_len) \
+	_LOGV(sockaddr_format((const struct sockaddr *)(addr), (addr_len), (buf), (buf_len)))
 
 /*
  * Structured fields must be passed as:

@@ -29,6 +29,7 @@ int start_route(
 		const struct route *r,
 		struct route_ctx *ctx);
 
-void stop_route(struct route_ctx *ctx);
+void stop_route_listeners(struct route_ctx *ctx);
+void free_route(struct route_ctx *ctx);
 
 #endif

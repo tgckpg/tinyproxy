@@ -92,17 +92,23 @@ static void stop_unix_stream_route(struct stream_route_ctx *ctx)
 	}
 }
 
-void stop_stream_route(struct stream_route_ctx *ctx)
+void stop_stream_route_listener(struct stream_route_ctx *ctx)
 {
-	if (ctx == NULL) {
+	if (ctx->listener) {
+		evconnlistener_free(ctx->listener);
+		ctx->listener = NULL;
+	}
+}
+
+void free_stream_route(struct stream_route_ctx *ctx)
+{
+	if (!ctx) {
 		return;
 	}
 
-	if (ctx->listener != NULL) {
-		evconnlistener_free(ctx->listener);
-	}
-
+#ifndef _WIN32
 	stop_unix_stream_route(ctx);
+#endif
 
 	memset(ctx, 0, sizeof(*ctx));
 }

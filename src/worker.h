@@ -81,7 +81,6 @@ int worker_enqueue_stream_client(
 int worker_enqueue_datagram_packet(
 	struct worker *w,
 	struct datagram_route_ctx *ctx,
-	evutil_socket_t listen_fd,
 	const struct sockaddr *peer_addr,
 	socklen_t peer_addr_len,
 	const unsigned char *data,

@@ -8,6 +8,40 @@
 #include "datagram_client.h"
 #include "datagram_builtin.h"
 
+#ifdef TINYPROXY_DEBUG
+#include <stdlib.h>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+static void tinyproxy_debug_race_sleep(const char *name)
+{
+	const char *want = getenv("TINYPROXY_RACE_SLEEP");
+	const char *delay_s = getenv("TINYPROXY_RACE_SLEEP_US");
+	long delay_us;
+
+	if (!want || strcmp(want, name) != 0) {
+		return;
+	}
+
+	delay_us = delay_s ? strtol(delay_s, NULL, 10) : 1000;
+	if (delay_us <= 0) {
+		delay_us = 1000;
+	}
+
+#ifdef _WIN32
+	Sleep((DWORD)((delay_us + 999) / 1000));
+#else
+	usleep((useconds_t)delay_us);
+#endif
+}
+#else
+static void tinyproxy_debug_race_sleep(const char *name)
+{
+	(void)name;
+}
+#endif
+
 static int handle_datagram_builtin_packet(const struct worker_datagram_packet_msg *pkt)
 {
 	struct datagram_client tmp;
@@ -34,6 +68,7 @@ static struct datagram_client *datagram_route_get_or_create_client(
 
 	c = find_datagram_client(pkt->ctx, &pkt->peer_addr, pkt->peer_addr_len);
 	if (c == NULL) {
+		tinyproxy_debug_race_sleep("udp_client_create");
 		c = create_datagram_client(
 			pkt->ctx,
 			w->base,
@@ -53,31 +88,39 @@ int datagram_route_handle_packet(
 	struct worker *w,
 	const struct worker_datagram_packet_msg *pkt)
 {
+	struct datagram_route_ctx *ctx = pkt->ctx;
 	struct datagram_client *c;
 	int rc;
 
-	if (pkt->route->upstream.kind == ENDPOINT_BUILTIN) {
+	if (ctx->route->upstream.kind == ENDPOINT_BUILTIN) {
 		return handle_datagram_builtin_packet(pkt);
 	}
 
+	compat_mutex_lock(&ctx->clients_mu);
+
 	c = datagram_route_get_or_create_client(w, pkt);
 	if (!c) {
-		return -ENOMEM;
+		rc = -ENOMEM;
+		goto out;
 	}
 
+	tinyproxy_debug_race_sleep("udp_before_send");
+
 	rc = send_datagram_payload_to_upstream(c, pkt->data, pkt->data_len);
+
+out:
+	compat_mutex_unlock(&ctx->clients_mu);
+
 	if (rc != 0) {
 		LOG_WARN("failed to send datagram payload upstream",
 			"err", _LOGV(strerror(-rc)));
-		return rc;
 	}
 
-	return 0;
+	return rc;
 }
 
 static int dispatch_datagram_packet(
 	struct datagram_route_ctx *ctx,
-	evutil_socket_t listen_fd,
 	const struct sockaddr *peer_addr,
 	socklen_t peer_addr_len,
 	const unsigned char *data,
@@ -101,7 +144,6 @@ static int dispatch_datagram_packet(
 	return worker_enqueue_datagram_packet(
 		w,
 		ctx,
-		listen_fd,
 		peer_addr,
 		peer_addr_len,
 		data,
@@ -147,7 +189,6 @@ static void listen_read_cb(evutil_socket_t fd, short events, void *arg)
 
 	rc = dispatch_datagram_packet(
 		ctx,
-		fd,
 		(struct sockaddr *)&peer_addr,
 		peer_addr_len,
 		buf,
