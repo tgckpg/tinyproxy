@@ -47,7 +47,7 @@ int datagram_raw_open_ipv4(evutil_socket_t *out_fd)
 		return -errno;
 	}
 
-	if (setsockopt(fd, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) < 0) {
+	if (setsockopt(fd, IPPROTO_IP, IP_HDRINCL, compat_setsockopt_optval(&one), sizeof(one)) < 0) {
 		int err = errno;
 		evutil_closesocket(fd);
 		return -err;
@@ -92,8 +92,8 @@ int datagram_raw_send_udp_ipv4(
 	const struct sockaddr_in *dst;
 	struct sockaddr_in send_dst;
 	unsigned char *packet;
-	struct ip *ip;
-	struct udphdr *udp;
+	struct raw_ipv4_hdr *ip;
+	struct raw_udp_hdr *udp;
 	size_t ip_len = sizeof(*ip);
 	size_t udp_len = sizeof(*udp);
 	size_t packet_len;
@@ -130,49 +130,53 @@ int datagram_raw_send_udp_ipv4(
 		return -ENOMEM;
 	}
 
-	ip = (struct ip *)packet;
-	udp = (struct udphdr *)(packet + ip_len);
+	ip = (struct raw_ipv4_hdr *)packet;
+	udp = (struct raw_udp_hdr *)(packet + ip_len);
 
-	ip->ip_v = 4;
-	ip->ip_hl = 5;
-	ip->ip_tos = 0;
-	ip->ip_len = compat_raw_ip_len((uint16_t)packet_len);
-	ip->ip_id = 0;
-	ip->ip_off = compat_raw_ip_off(0);
-	ip->ip_ttl = 64;
-	ip->ip_p = IPPROTO_UDP;
-	ip->ip_src = src_addr.sin_addr;
-	ip->ip_dst = dst->sin_addr;
-	ip->ip_sum = 0;
+	ip->vhl = (uint8_t)((4u << 4) | 5u);
+	ip->tos = 0;
+	ip->len = compat_raw_ip_len((uint16_t)packet_len);
+	ip->id = 0;
+	ip->off = compat_raw_ip_off(0);
+	ip->ttl = 64;
+	ip->proto = IPPROTO_UDP;
+	ip->sum = 0;
+	ip->src = src_addr.sin_addr.s_addr;
+	ip->dst = dst->sin_addr.s_addr;
 
-	udp->uh_sport = src_addr.sin_port;
-	udp->uh_dport = dst->sin_port;
-	udp->uh_ulen = htons((uint16_t)(udp_len + data_len));
-	udp->uh_sum = 0;
+	udp->sport = src_addr.sin_port;
+	udp->dport = dst->sin_port;
+	udp->len = htons((uint16_t)(udp_len + data_len));
+	udp->sum = 0;
 
 	memcpy(packet + ip_len + udp_len, data, data_len);
 
-	ip->ip_sum = checksum16(ip, ip_len);
+	ip->sum = checksum16(ip, ip_len);
 
 	/*
 	 * For IPv4, UDP checksum 0 is legal and means "no checksum".
 	 * Keep this simple for now; it avoids checksum/offload weirdness while
 	 * testing spoofed discovery replies.
 	 */
-	udp->uh_sum = 0;
+	udp->sum = 0;
 
 	memset(&send_dst, 0, sizeof(send_dst));
 	send_dst.sin_family = AF_INET;
 	send_dst.sin_addr = dst->sin_addr;
-	send_dst.sin_port = dst->sin_port;
+	send_dst.sin_port = 0;
+
+#ifdef __APPLE__
+	send_dst.sin_len = sizeof(send_dst);
+#endif
 
 	n = sendto(
 		raw_fd,
-		(const char *)packet,
-		packet_len,
+		compat_send_buf(packet),
+		compat_send_len(packet_len),
 		0,
 		(const struct sockaddr *)&send_dst,
-		sizeof(send_dst));
+		sizeof(send_dst)
+	);
 
 	free(packet);
 

@@ -36,6 +36,20 @@
 #define compat_unlink(path) unlink(path)
 #endif
 
+#ifdef _WIN32
+#define compat_setsockopt_optval(p) ((const char *)(p))
+#else
+#define compat_setsockopt_optval(p) ((const void *)(p))
+#endif
+
+#ifdef _WIN32
+#define compat_send_buf(p) ((const char *)(p))
+#define compat_send_len(n) ((int)(n))
+#else
+#define compat_send_buf(p) ((const void *)(p))
+#define compat_send_len(n) (n)
+#endif
+
 static inline int socket_err_is_retriable(int err)
 {
 #ifdef _WIN32
