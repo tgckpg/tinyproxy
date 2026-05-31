@@ -97,6 +97,34 @@ static inline uint16_t compat_raw_ip_off(uint16_t off)
 #endif
 }
 
+static inline int compat_socket_errno(void)
+{
+#ifdef _WIN32
+	int err = WSAGetLastError();
+
+	switch (err) {
+	case WSAEACCES:
+		return EACCES;
+	case WSAEINVAL:
+		return EINVAL;
+	case WSAEADDRNOTAVAIL:
+		return EADDRNOTAVAIL;
+	case WSAEMSGSIZE:
+		return EMSGSIZE;
+	case WSAENETUNREACH:
+		return ENETUNREACH;
+	case WSAEHOSTUNREACH:
+		return EHOSTUNREACH;
+	case WSAENOBUFS:
+		return ENOBUFS;
+	default:
+		return EIO;
+	}
+#else
+	return errno;
+#endif
+}
+
 #if defined(AF_INET) && \
 	defined(SOCK_RAW) && \
 	defined(IPPROTO_RAW) && \

@@ -42,13 +42,17 @@ int datagram_raw_open_ipv4(evutil_socket_t *out_fd)
 		return -EINVAL;
 	}
 
+#ifdef _WIN32
+	fd = socket(AF_INET, SOCK_RAW, IPPROTO_UDP);
+#else
 	fd = socket(AF_INET, SOCK_RAW, IPPROTO_RAW);
+#endif
 	if (fd < 0) {
-		return -errno;
+		return -compat_socket_errno();
 	}
 
 	if (setsockopt(fd, IPPROTO_IP, IP_HDRINCL, compat_setsockopt_optval(&one), sizeof(one)) < 0) {
-		int err = errno;
+		int err = compat_socket_errno();
 		evutil_closesocket(fd);
 		return -err;
 	}
@@ -181,7 +185,24 @@ int datagram_raw_send_udp_ipv4(
 	free(packet);
 
 	if (n < 0) {
-		return -errno;
+#ifdef _WIN32
+		LOG_ERROR("datagram raw send failed",
+				"wsaerr", _LOGV(WSAGetLastError()),
+				"packet_len", _LOGV(packet_len),
+				"src_ip", _LOGV(src_addr.sin_addr.s_addr),
+				"src_port", _LOGV(ntohs(src_addr.sin_port)),
+				"dst_ip", _LOGV(dst->sin_addr.s_addr),
+				"dst_port", _LOGV(ntohs(dst->sin_port))
+				);
+#else
+		LOG_ERROR("datagram raw send failed",
+				"err", _LOGV(strerror(errno)),
+				"packet_len", _LOGV(packet_len),
+				"src_port", _LOGV(ntohs(src_addr.sin_port)),
+				"dst_port", _LOGV(ntohs(dst->sin_port))
+				);
+#endif
+		return -compat_socket_errno();
 	}
 
 	if ((size_t)n != packet_len) {
