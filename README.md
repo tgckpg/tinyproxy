@@ -49,8 +49,6 @@ check example/tinyproxy.conf or use `man 5 tinyproxy` after `make install-man` f
 - retries
 - load balancing
 - service discovery
-- health checks
-- dynamic configuration reloads
 - QUIC awareness (just forward 443 udp)
 - full HAProxy compatibility
 
@@ -58,10 +56,24 @@ Use HAProxy, Envoy, nginx, Cilium, or a real load balancer if you need those.
 
 ## Development status
 
-This project is still work in progress. Basic funtinoality works. (See tests)
+Before releasing v1.0.0
+
+I'm testing this in prod right now. This might take a long time since I'm one person.
+
+If you found this useful and want to help please do. I really need some help on writing the man pages.
 
 ### TODO
-These are the major features I want to implement before calling it done. (going into maintainance mode)
 
-* Core
-  * IPv6 (planned for v0.2.x)
+These are features that would be nice to have, but I don't need them in my Kubernetes environment.
+
+- Config auto-reload
+  - Resolution: just restart it.
+  - This ensures a cleaner state. Reloading configuration is hard to handle properly.
+
+- Health checks
+  - Resolution: let Kubernetes handle them.
+
+- Domain support
+  - Resolution: use an external tool to rewrite the config and restart the proxy.
+  - For my setup, I would use initContainers for this.
+  - In general, when something requires hostname resolution, I usually end up using a full-featured server instead, such as HAProxy or nginx.
