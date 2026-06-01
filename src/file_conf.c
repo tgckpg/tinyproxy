@@ -86,30 +86,74 @@ static int find_conflicting_route(
 
 static int split_host_port(const char *input,
 						   char *host, size_t host_len,
-						   uint16_t *port)
+						   uint16_t *port,
+						   bool *is_ipv6)
 {
-	const char *colon = strrchr(input, ':');
-	if (!colon) {
+	const char *port_s;
+	size_t hlen;
+
+	if (!input || !host || host_len == 0 || !port || !is_ipv6) {
 		return -1;
 	}
 
-	size_t hlen = (size_t)(colon - input);
-	const char *port_s = colon + 1;
+	host[0] = '\0';
+	*is_ipv6 = false;
 
-	if (hlen >= host_len || *port_s == '\0') {
-		return -1;
+	if (input[0] == '[') {
+		const char *close = strchr(input, ']');
+
+		if (!close) {
+			return -1;
+		}
+
+		if (close[1] != ':') {
+			return -1;
+		}
+
+		hlen = (size_t)(close - (input + 1));
+		port_s = close + 2;
+
+		if (hlen == 0 || hlen >= host_len || *port_s == '\0') {
+			return -1;
+		}
+
+		memcpy(host, input + 1, hlen);
+		host[hlen] = '\0';
+		*is_ipv6 = true;
+	} else {
+		const char *first_colon = strchr(input, ':');
+		const char *last_colon = strrchr(input, ':');
+
+		if (!last_colon) {
+			return -1;
+		}
+
+		/*
+		 * Reject bare IPv6 with port.
+		 * Use [::1]:80 instead.
+		 */
+		if (first_colon != last_colon) {
+			return -1;
+		}
+
+		hlen = (size_t)(last_colon - input);
+		port_s = last_colon + 1;
+
+		if (hlen >= host_len || *port_s == '\0') {
+			return -1;
+		}
+
+		memcpy(host, input, hlen);
+		host[hlen] = '\0';
+
+		/* Allow ":80" as IPv4 wildcard shorthand. */
+		if (host[0] == '\0') {
+			snprintf(host, host_len, "0.0.0.0");
+		}
 	}
-
-	memcpy(host, input, hlen);
-	host[hlen] = '\0';
 
 	if (parse_port(port_s, port) != 0) {
 		return -1;
-	}
-
-	// Allow ":80" as shorthand for all interfaces.
-	if (host[0] == '\0') {
-		snprintf(host, host_len, "0.0.0.0");
 	}
 
 	return 0;
@@ -301,14 +345,16 @@ static int parse_endpoint(enum endpoint_proto proto, const char *s, struct endpo
 
 	switch (proto) {
 	case PROTO_TCP:
-	case PROTO_UDP:
-		ep->kind = ENDPOINT_INET;
+	case PROTO_UDP: {
+		bool is_ipv6 = false;
 
-		if (split_host_port(s, ep->host, sizeof(ep->host), &ep->port) != 0) {
+		if (split_host_port(s, ep->host, sizeof(ep->host), &ep->port, &is_ipv6) != 0) {
 			return -1;
 		}
 
+		ep->kind = is_ipv6 ? ENDPOINT_INET6 : ENDPOINT_INET;
 		return 0;
+	}
 
 	case PROTO_UNIX_STREAM:
 		path = s;

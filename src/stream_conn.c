@@ -207,26 +207,27 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 
 static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 {
-	if (ep == NULL) {
+	if (bev == NULL || ep == NULL) {
 		return -EINVAL;
 	}
 
 	switch (ep->kind) {
-	case ENDPOINT_INET: {
-		struct sockaddr_in addr;
+	case ENDPOINT_INET:
+	case ENDPOINT_INET6:
+	{
+		struct sockaddr_storage addr;
+		socklen_t addr_len;
+		int rc;
 
-		memset(&addr, 0, sizeof(addr));
-		addr.sin_family = AF_INET;
-		addr.sin_port = htons(ep->port);
-
-		if (inet_pton(AF_INET, ep->host, &addr.sin_addr) != 1) {
-			return -EINVAL;
+		rc = endpoint_to_sockaddr(ep, &addr, &addr_len);
+		if (rc != 0) {
+			return rc;
 		}
 
 		if (bufferevent_socket_connect(
-			    bev,
-			    (struct sockaddr *)&addr,
-			    sizeof(addr)) < 0) {
+				bev,
+				(struct sockaddr *)&addr,
+				addr_len) < 0) {
 			return -errno;
 		}
 
@@ -251,9 +252,9 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 		strcpy(addr.sun_path, ep->path);
 
 		if (bufferevent_socket_connect(
-			    bev,
-			    (struct sockaddr *)&addr,
-			    sizeof(addr)) < 0) {
+				bev,
+				(struct sockaddr *)&addr,
+				sizeof(addr)) < 0) {
 			return -errno;
 		}
 

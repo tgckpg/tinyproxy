@@ -67,16 +67,15 @@ void accept_error_cb(struct evconnlistener *listener, void *arg)
 static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 {
 	const struct route *r = ctx->route;
-	struct sockaddr_in listen_addr;
+	struct sockaddr_storage listen_addr;
+	socklen_t listen_addr_len;
+	int rc;
 
-	memset(&listen_addr, 0, sizeof(listen_addr));
-	listen_addr.sin_family = AF_INET;
-	listen_addr.sin_port = htons(r->listen.port);
-
-	if (inet_pton(AF_INET, r->listen.host, &listen_addr.sin_addr) != 1) {
+	rc = endpoint_to_sockaddr(&r->listen, &listen_addr, &listen_addr_len);
+	if (rc != 0) {
 		LOG_ERROR("invalid listen address",
 			"listen", _LOGV_ENDPOINT(&r->listen));
-		return -EINVAL;
+		return rc;
 	}
 
 	ctx->listener = evconnlistener_new_bind(
@@ -86,7 +85,7 @@ static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 		LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
 		-1,
 		(struct sockaddr *)&listen_addr,
-		sizeof(listen_addr)
+		listen_addr_len
 	);
 
 	if (ctx->listener == NULL) {
@@ -217,6 +216,7 @@ int bind_stream_listener(struct stream_route_ctx *ctx)
 {
 	switch (ctx->route->listen.kind) {
 	case ENDPOINT_INET:
+	case ENDPOINT_INET6:
 		return bind_tcp_stream_listener(ctx);
 
 	case ENDPOINT_UNIX:

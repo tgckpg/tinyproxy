@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 
+#include "compat.h"
 #include "x_builtins.h"
 
 enum endpoint_proto {
@@ -16,6 +17,7 @@ enum endpoint_proto {
 
 enum endpoint_kind {
 	ENDPOINT_INET,
+	ENDPOINT_INET6,
 	ENDPOINT_UNIX,
 	ENDPOINT_UNIX_DGRAM,
 	ENDPOINT_BUILTIN,
@@ -40,5 +42,7 @@ int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len);
 bool endpoint_is_stream(const struct endpoint *ep);
 bool endpoint_is_datagram(const struct endpoint *ep);
 bool endpoint_is_listenable(const struct endpoint *ep);
-
+int endpoint_to_sockaddr(const struct endpoint *ep,
+								struct sockaddr_storage *ss,
+								socklen_t *ss_len);
 #endif

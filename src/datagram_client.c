@@ -100,18 +100,19 @@ static int connect_datagram_upstream(struct datagram_client *c, const struct end
 
 	switch (upstream->kind) {
 
-	case ENDPOINT_INET: {
-		struct sockaddr_in upstream_addr;
+	case ENDPOINT_INET:
+	case ENDPOINT_INET6:
+	{
+		struct sockaddr_storage upstream_addr;
+		socklen_t upstream_addr_len;
+		int rc;
 
-		memset(&upstream_addr, 0, sizeof(upstream_addr));
-		upstream_addr.sin_family = AF_INET;
-		upstream_addr.sin_port = htons(upstream->port);
-
-		if (inet_pton(AF_INET, upstream->host, &upstream_addr.sin_addr) != 1) {
-			return -EINVAL;
+		rc = endpoint_to_sockaddr(upstream, &upstream_addr, &upstream_addr_len);
+		if (rc != 0) {
+			return rc;
 		}
 
-		c->fd = socket(AF_INET, SOCK_DGRAM, 0);
+		c->fd = socket(upstream_addr.ss_family, SOCK_DGRAM, 0);
 		if (c->fd < 0) {
 			return -EVUTIL_SOCKET_ERROR();
 		}
@@ -119,9 +120,14 @@ static int connect_datagram_upstream(struct datagram_client *c, const struct end
 		if (connect(
 				c->fd,
 				(const struct sockaddr *)&upstream_addr,
-				sizeof(upstream_addr)
+				upstream_addr_len
 			) < 0) {
-			return -EVUTIL_SOCKET_ERROR();
+			int err = EVUTIL_SOCKET_ERROR();
+
+			evutil_closesocket(c->fd);
+			c->fd = -1;
+
+			return -err;
 		}
 
 		return 0;

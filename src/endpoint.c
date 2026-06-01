@@ -1,6 +1,7 @@
+#include <errno.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <errno.h>
+#include <string.h>
 
 #include "endpoint.h"
 
@@ -18,6 +19,10 @@ int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len)
 	switch (ep->kind) {
 	case ENDPOINT_INET:
 		snprintf(buf, buf_len, "%s:%u", ep->host, ep->port);
+		return 0;
+
+	case ENDPOINT_INET6:
+		snprintf(buf, buf_len, "[%s]:%u", ep->host, ep->port);
 		return 0;
 
 	case ENDPOINT_UNIX:
@@ -39,6 +44,46 @@ int endpoint_to_string(const struct endpoint *ep, char *buf, size_t buf_len)
 	default:
 		snprintf(buf, buf_len, "<unknown>");
 		return 0;
+	}
+}
+
+int endpoint_to_sockaddr(const struct endpoint *ep,
+								struct sockaddr_storage *ss,
+								socklen_t *ss_len)
+{
+	memset(ss, 0, sizeof(*ss));
+
+	switch (ep->kind) {
+	case ENDPOINT_INET: {
+		struct sockaddr_in *addr4 = (struct sockaddr_in *)ss;
+
+		addr4->sin_family = AF_INET;
+		addr4->sin_port = htons(ep->port);
+
+		if (inet_pton(AF_INET, ep->host, &addr4->sin_addr) != 1) {
+			return -EINVAL;
+		}
+
+		*ss_len = sizeof(*addr4);
+		return 0;
+	}
+
+	case ENDPOINT_INET6: {
+		struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)ss;
+
+		addr6->sin6_family = AF_INET6;
+		addr6->sin6_port = htons(ep->port);
+
+		if (inet_pton(AF_INET6, ep->host, &addr6->sin6_addr) != 1) {
+			return -EINVAL;
+		}
+
+		*ss_len = sizeof(*addr6);
+		return 0;
+	}
+
+	default:
+		return -EINVAL;
 	}
 }
 

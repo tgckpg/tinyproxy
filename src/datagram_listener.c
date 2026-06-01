@@ -331,22 +331,37 @@ static int bind_unix_datagram_listener(struct datagram_route_ctx *ctx)
 static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 {
 	const struct route *r = ctx->route;
-	struct sockaddr_in listen_addr;
+	struct sockaddr_storage listen_addr;
+	socklen_t listen_addr_len;
+	int family;
 	int one = 1;
+	int rc;
 
-	memset(&listen_addr, 0, sizeof(listen_addr));
-
-	listen_addr.sin_family = AF_INET;
-	listen_addr.sin_port = htons(r->listen.port);
-
-	if (inet_pton(AF_INET, r->listen.host, &listen_addr.sin_addr) != 1) {
+	rc = endpoint_to_sockaddr(&r->listen, &listen_addr, &listen_addr_len);
+	if (rc != 0) {
 		LOG_ERROR("invalid udp listen address",
+			"listen", _LOGV_ENDPOINT(&r->listen)
+		);
+		return rc;
+	}
+
+	switch (r->listen.kind) {
+	case ENDPOINT_INET:
+		family = AF_INET;
+		break;
+
+	case ENDPOINT_INET6:
+		family = AF_INET6;
+		break;
+
+	default:
+		LOG_ERROR("invalid udp listen endpoint kind",
 			"listen", _LOGV_ENDPOINT(&r->listen)
 		);
 		return -EINVAL;
 	}
 
-	ctx->listen_fd = socket(AF_INET, SOCK_DGRAM, 0);
+	ctx->listen_fd = socket(family, SOCK_DGRAM, 0);
 	if (ctx->listen_fd < 0) {
 		int err = EVUTIL_SOCKET_ERROR();
 
@@ -357,13 +372,46 @@ static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 	}
 
 	if (r->opts.broadcast_reply != BROADCAST_REPLY_OFF) {
+		if (r->listen.kind != ENDPOINT_INET) {
+			LOG_ERROR("broadcast_reply is only supported for IPv4 UDP",
+				"line", _LOGV(r->line_no),
+				"listen", _LOGV_ENDPOINT(&r->listen)
+			);
+			return -EINVAL;
+		}
+
+		{
+			int yes = 1;
+
+			if (setsockopt(ctx->listen_fd, SOL_SOCKET, SO_BROADCAST,
+						(const char *)&yes, sizeof(yes)) < 0) {
+				int err = EVUTIL_SOCKET_ERROR();
+
+				LOG_ERROR("failed to enable broadcast",
+					"line", _LOGV(r->line_no),
+					"err", _LOGV(evutil_socket_error_to_string(err))
+				);
+				return -err;
+			}
+		}
+	}
+
+	if (family == AF_INET6) {
 		int yes = 1;
-		if (setsockopt(ctx->listen_fd, SOL_SOCKET, SO_BROADCAST,
+
+		/*
+		 * Keep behavior explicit:
+		 *   udp :1234      => IPv4 only
+		 *   udp [::]:1234  => IPv6 only
+		 */
+		if (setsockopt(ctx->listen_fd, IPPROTO_IPV6, IPV6_V6ONLY,
 					(const char *)&yes, sizeof(yes)) < 0) {
 			int err = EVUTIL_SOCKET_ERROR();
-			LOG_ERROR("failed to enable broadcast",
-					"line", _LOGV(r->line_no),
-					"err", _LOGV(evutil_socket_error_to_string(err)));
+
+			LOG_ERROR("failed to set IPV6_V6ONLY",
+				"line", _LOGV(r->line_no),
+				"err", _LOGV(evutil_socket_error_to_string(err))
+			);
 			return -err;
 		}
 	}
@@ -375,25 +423,33 @@ static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 		return -EINVAL;
 	}
 
-	setsockopt(
-		ctx->listen_fd,
-		SOL_SOCKET,
-		SO_REUSEADDR,
-		(const char *)&one,
-		sizeof(one)
-	);
+	if (setsockopt(
+			ctx->listen_fd,
+			SOL_SOCKET,
+			SO_REUSEADDR,
+			(const char *)&one,
+			sizeof(one)
+		) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to set SO_REUSEADDR",
+			"line", _LOGV(r->line_no),
+			"err", _LOGV(evutil_socket_error_to_string(err))
+		);
+		return -err;
+	}
 
 	if (bind(
 			ctx->listen_fd,
 			(const struct sockaddr *)&listen_addr,
-			sizeof(listen_addr)
+			listen_addr_len
 		) < 0) {
 		int err = EVUTIL_SOCKET_ERROR();
 
 		LOG_ERROR("udp bind failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		return -EADDRINUSE;
+		return -err;
 	}
 
 	ctx->local_addr_len = sizeof(ctx->local_addr);
@@ -409,7 +465,7 @@ static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 		LOG_ERROR("udp getsockname failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		return -EINVAL;
+		return -err;
 	}
 
 	ctx->listen_ev = event_new(
@@ -436,6 +492,7 @@ int bind_datagram_listener(struct datagram_route_ctx *ctx)
 {
 	switch (ctx->route->listen.kind) {
 	case ENDPOINT_INET:
+	case ENDPOINT_INET6:
 		return bind_udp_datagram_listener(ctx);
 
 	case ENDPOINT_UNIX_DGRAM:
