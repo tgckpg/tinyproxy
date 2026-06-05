@@ -108,11 +108,26 @@ int start_stream_builtin(conn_t *conn)
 	switch (res.action) {
 	case X_BUILTIN_ACTION_CLOSE:
 		if (res.data_len > 0) {
+			bufferevent_setcb(
+				conn->client,
+				builtin_client_read_cb,
+				builtin_close_after_write_cb,
+				stream_client_event_cb,
+				conn
+			);
 			bufferevent_write(conn->client, res.data, res.data_len);
-			bufferevent_setcb(conn->client, NULL, builtin_close_after_write_cb, stream_client_event_cb, conn);
-			bufferevent_enable(conn->client, EV_WRITE);
+			bufferevent_enable(conn->client, EV_READ | EV_WRITE);
 		} else {
-			free_conn(conn);
+			finish_client_write(conn);
+			conn->close_after_client_eof = true;
+			bufferevent_setcb(
+				conn->client,
+				builtin_client_read_cb,
+				NULL,
+				stream_client_event_cb,
+				conn
+			);
+			bufferevent_enable(conn->client, EV_READ);
 		}
 		return 0;
 

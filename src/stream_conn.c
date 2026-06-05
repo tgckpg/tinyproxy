@@ -94,7 +94,9 @@ static void drain_client_then_close(conn_t *conn)
 	}
 
 	if (!client_has_pending_output(conn)) {
-		free_conn(conn);
+		finish_client_write(conn);
+		conn->close_client_after_drain = false;
+		conn->close_after_client_eof = true;
 	}
 }
 
@@ -237,11 +239,7 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	}
 
 	if (events & BEV_EVENT_EOF) {
-		if (client_has_pending_output(conn)) {
-			goto out_drain_client;
-		}
-
-		goto out_free;
+		goto out_drain_client;
 	}
 
 	LOG_DEBUG("unhandled upstream event",
