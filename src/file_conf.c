@@ -427,7 +427,7 @@ int parse_route_line(char *line, struct route *route)
 	tok = strtok_r(line, " \t\r\n", &saveptr);
 	while (tok != NULL) {
 		if (count >= MAX_ROUTE_FIELDS) {
-			return -1;
+			return -EINVAL;
 		}
 
 		fields[count++] = tok;
@@ -435,7 +435,7 @@ int parse_route_line(char *line, struct route *route)
 	}
 
 	if (count == 0) {
-		return -1;
+		return -EINVAL;
 	}
 
 	/* Config file form:
@@ -449,35 +449,35 @@ int parse_route_line(char *line, struct route *route)
 	}
 
 	if (count - pos < 4) {
-		return -1;
+		return -EINVAL;
 	}
 
 	memset(route, 0, sizeof(*route));
 	route_options_set_defaults(&route->opts);
 
 	if (parse_proto(fields[pos], &listen_proto) != 0) {
-		return -1;
+		return -EINVAL;
 	}
 	pos++;
 
 	if (parse_endpoint(listen_proto, fields[pos], &route->listen) != 0) {
-		return -1;
+		return -EINVAL;
 	}
 	pos++;
 
 	if (parse_proto(fields[pos], &backend_proto) != 0) {
-		return -1;
+		return -EINVAL;
 	}
 	pos++;
 
 	if (parse_endpoint(backend_proto, fields[pos], &route->upstream) != 0) {
-		return -1;
+		return -EINVAL;
 	}
 	pos++;
 
 	for (; pos < count; pos++) {
 		if (parse_route_options(fields[pos], &route->opts) != 0) {
-			return -1;
+			return -EINVAL;
 		}
 	}
 
