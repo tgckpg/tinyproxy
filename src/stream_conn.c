@@ -98,6 +98,27 @@ static void drain_client_then_close(conn_t *conn)
 	}
 }
 
+void finish_client_write(conn_t *conn)
+{
+	evutil_socket_t fd = bufferevent_getfd(conn->client);
+
+	if (fd >= 0) {
+#ifndef _WIN32
+		shutdown(fd, SHUT_WR);
+#else
+		shutdown(fd, SD_SEND);
+#endif
+	}
+
+	bufferevent_disable(conn->client, EV_WRITE);
+
+	/*
+	 * Keep EV_READ enabled so we can observe client EOF instead of
+	 * closing with unread data and causing RST on some platforms.
+	 */
+	bufferevent_enable(conn->client, EV_READ);
+}
+
 void stream_client_event_cb(struct bufferevent *bev, short events, void *arg)
 {
 	(void)bev;
@@ -106,40 +127,68 @@ void stream_client_event_cb(struct bufferevent *bev, short events, void *arg)
 	const struct route *r = conn->route;
 
 	if (events & BEV_EVENT_TIMEOUT) {
-		LOG_WARN("client connection timed out",
-				"listen", _LOGV_ENDPOINT(&r->listen),
-				"upstream", _LOGV_ENDPOINT(&r->upstream)
-				);
-		free_conn(conn);
-		return;
+		LOG_DEBUG("client connection timed out",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"upstream", _LOGV_ENDPOINT(&r->upstream)
+		);
+		goto out_free;
 	}
 
 	if (events & BEV_EVENT_ERROR) {
 		int err = EVUTIL_SOCKET_ERROR();
 
 		if (conn->close_after_client_eof && err == ECONNRESET) {
-			LOG_INFO("client reset after response drain",
+			LOG_DEBUG("client reset after response drain",
 				"listen", _LOGV_ENDPOINT(&r->listen),
 				"upstream", _LOGV_ENDPOINT(&r->upstream)
 			);
-			free_conn(conn);
-			return;
+			goto out_free;
 		}
 
-		LOG_ERROR("client connection error",
+		if (err == ECONNRESET) {
+			LOG_DEBUG("client reset connection",
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream)
+			);
+			goto out_free;
+		}
+
+#ifdef EPIPE
+		if (err == EPIPE) {
+			LOG_DEBUG("client pipe closed",
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream)
+			);
+			goto out_free;
+		}
+#endif
+
+#ifdef ETIMEDOUT
+		if (err == ETIMEDOUT) {
+			LOG_DEBUG("client connection timed out",
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream)
+			);
+			goto out_free;
+		}
+#endif
+
+		LOG_WARN("client connection error",
 			"err", _LOGV(evutil_socket_error_to_string(err)),
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream)
 		);
-
-		free_conn(conn);
-		return;
+		goto out_free;
 	}
 
 	if (events & BEV_EVENT_EOF) {
-		free_conn(conn);
-		return;
+		goto out_free;
 	}
+
+	return;
+
+out_free:
+	free_conn(conn);
 }
 
 void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
@@ -147,7 +196,6 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	(void)bev;
 
 	conn_t *conn = arg;
-
 	const struct route *r = conn->route;
 
 	if (events & BEV_EVENT_CONNECTED) {
@@ -160,18 +208,16 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 
 	if (events & BEV_EVENT_TIMEOUT) {
 		LOG_WARN("upstream connection timed out",
-				"listen", _LOGV_ENDPOINT(&r->listen),
-				"upstream", _LOGV_ENDPOINT(&r->upstream)
-				);
-		free_conn(conn);
-		return;
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"upstream", _LOGV_ENDPOINT(&r->upstream)
+		);
+		goto out_free;
 	}
 
 	if (events & BEV_EVENT_ERROR) {
 		int err = EVUTIL_SOCKET_ERROR();
 
 		if (client_has_pending_output(conn)) {
-
 			LOG_WARN("upstream error after response queued; draining client",
 				"err", _LOGV(evutil_socket_error_to_string(err)),
 				"client_output", _LOGV(bev_output_len(conn->client)),
@@ -179,30 +225,37 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 				"listen", _LOGV_ENDPOINT(&r->listen),
 				"upstream", _LOGV_ENDPOINT(&r->upstream)
 			);
-
-			drain_client_then_close(conn);
-			return;
+			goto out_drain_client;
 		}
 
-		LOG_ERROR("upstream connection error",
+		LOG_WARN("upstream connection error",
 			"err", _LOGV(evutil_socket_error_to_string(err)),
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream)
 		);
-
-		free_conn(conn);
-		return;
+		goto out_free;
 	}
 
 	if (events & BEV_EVENT_EOF) {
 		if (client_has_pending_output(conn)) {
-			drain_client_then_close(conn);
-			return;
+			goto out_drain_client;
 		}
 
-		free_conn(conn);
-		return;
+		goto out_free;
 	}
+
+	LOG_DEBUG("unhandled upstream event",
+		"events", _LOGV(events),
+		"listen", _LOGV_ENDPOINT(&r->listen),
+		"upstream", _LOGV_ENDPOINT(&r->upstream)
+	);
+
+out_free:
+	free_conn(conn);
+	return;
+
+out_drain_client:
+	drain_client_then_close(conn);
 }
 
 static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)

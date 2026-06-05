@@ -2,6 +2,7 @@
 
 #include <string.h>
 
+#include "klog.h"
 #include "stream_builtin.h"
 #include "stream_conn.h"
 
@@ -17,10 +18,14 @@ static void builtin_client_read_cb(struct bufferevent *bev, void *arg)
 static void builtin_close_after_write_cb(struct bufferevent *bev, void *arg)
 {
 	conn_t *conn = arg;
+	struct evbuffer *output = bufferevent_get_output(bev);
 
-	if (evbuffer_get_length(bufferevent_get_output(bev)) == 0) {
-		free_conn(conn);
+	if (evbuffer_get_length(output) != 0) {
+		return;
 	}
+
+	finish_client_write(conn);
+	conn->close_after_client_eof = true;
 }
 
 static const char *stream_client_addr_string(conn_t *conn, char *buf, size_t buf_len)

@@ -5,27 +5,6 @@
 #include "stream_conn.h"
 #include "stream_pipe.h"
 
-static void finish_client_write(conn_t *conn)
-{
-	evutil_socket_t fd = bufferevent_getfd(conn->client);
-
-	if (fd >= 0) {
-#ifndef _WIN32
-		shutdown(fd, SHUT_WR);
-#else
-		shutdown(fd, SD_SEND);
-#endif
-	}
-
-	bufferevent_disable(conn->client, EV_WRITE);
-
-	/*
-	 * Keep EV_READ enabled so we can observe client EOF instead of
-	 * closing with unread data and causing RST on some platforms.
-	 */
-	bufferevent_enable(conn->client, EV_READ);
-}
-
 void pipe_client_read_cb(struct bufferevent *client, void *arg)
 {
 	conn_t *conn = arg;

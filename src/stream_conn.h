@@ -12,6 +12,7 @@ int dispatch_client_fd(struct worker *w,
 	socklen_t addr_len);
 void free_conn(conn_t *conn);
 
+void finish_client_write(conn_t *conn);
 void set_client_idle_timeout(conn_t *conn, const struct route *r);
 
 void stream_client_event_cb(struct bufferevent *bev, short events, void *arg);
