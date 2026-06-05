@@ -15,7 +15,7 @@ static void builtin_client_read_cb(struct bufferevent *bev, void *arg)
 	evbuffer_drain(input, evbuffer_get_length(input));
 }
 
-static void builtin_close_after_write_cb(struct bufferevent *bev, void *arg)
+static void builtin_http_close_after_write_cb(struct bufferevent *bev, void *arg)
 {
 	conn_t *conn = arg;
 	struct evbuffer *output = bufferevent_get_output(bev);
@@ -26,6 +26,15 @@ static void builtin_close_after_write_cb(struct bufferevent *bev, void *arg)
 
 	finish_client_write(conn);
 	conn->close_after_client_eof = true;
+}
+
+static void builtin_close_after_write_cb(struct bufferevent *bev, void *arg)
+{
+	conn_t *conn = arg;
+
+	if (evbuffer_get_length(bufferevent_get_output(bev)) == 0) {
+		free_conn(conn);
+	}
 }
 
 static const char *stream_client_addr_string(conn_t *conn, char *buf, size_t buf_len)
@@ -108,10 +117,20 @@ int start_stream_builtin(conn_t *conn)
 	switch (res.action) {
 	case X_BUILTIN_ACTION_CLOSE:
 		if (res.data_len > 0) {
+			bufferevent_write(conn->client, res.data, res.data_len);
+			bufferevent_setcb(conn->client, NULL, builtin_close_after_write_cb, stream_client_event_cb, conn);
+			bufferevent_enable(conn->client, EV_WRITE);
+		} else {
+			free_conn(conn);
+		}
+		return 0;
+
+	case X_BUILTIN_ACTION_HTTP_RESP:
+		if (res.data_len > 0) {
 			bufferevent_setcb(
 				conn->client,
 				builtin_client_read_cb,
-				builtin_close_after_write_cb,
+				builtin_http_close_after_write_cb,
 				stream_client_event_cb,
 				conn
 			);

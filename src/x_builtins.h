@@ -18,6 +18,7 @@ enum x_builtin_action {
 	X_BUILTIN_ACTION_CLOSE,
 	X_BUILTIN_ACTION_DISCARD,
 	X_BUILTIN_ACTION_HANG,
+	X_BUILTIN_ACTION_HTTP_RESP,
 };
 
 struct x_builtin_request {

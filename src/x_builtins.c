@@ -41,11 +41,6 @@ int x_builtin_parse(const char *s, enum x_builtin_upstream *out)
 		return 0;
 	}
 
-	if (strcmp(s, "close") == 0) {
-		*out = X_BUILTIN_CLOSE;
-		return 0;
-	}
-
 	return -EINVAL;
 }
 
@@ -108,7 +103,7 @@ int x_builtin_handle(
 		memcpy(res->data, http_ok, sizeof(http_ok) - 1);
 		res->data_len = sizeof(http_ok) - 1;
 
-		res->action = X_BUILTIN_ACTION_CLOSE;
+		res->action = X_BUILTIN_ACTION_HTTP_RESP;
 		return 0;
 	}
 
