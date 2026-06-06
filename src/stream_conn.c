@@ -221,6 +221,8 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	conn_t *conn = arg;
 	const struct route *r = conn->route;
 
+	char peer_buf[128];
+
 	if (events & BEV_EVENT_CONNECTED) {
 		set_idle_timeouts(conn, conn->route);
 
@@ -232,7 +234,9 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	if (events & BEV_EVENT_TIMEOUT) {
 		LOG_WARN("upstream connection timed out",
 			"listen", _LOGV_ENDPOINT(&r->listen),
-			"upstream", _LOGV_ENDPOINT(&r->upstream)
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+				peer_buf, sizeof(peer_buf))
 		);
 		goto out_free;
 	}
@@ -251,10 +255,22 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 			goto out_drain_client;
 		}
 
+		if (err == ECONNRESET) {
+			LOG_DEBUG("upstream reset connection",
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream),
+				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+					peer_buf, sizeof(peer_buf))
+			);
+			goto out_free;
+		}
+
 		LOG_WARN("upstream connection error",
 			"err", _LOGV(evutil_socket_error_to_string(err)),
 			"listen", _LOGV_ENDPOINT(&r->listen),
-			"upstream", _LOGV_ENDPOINT(&r->upstream)
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+				peer_buf, sizeof(peer_buf))
 		);
 		goto out_free;
 	}
