@@ -100,6 +100,19 @@ static void drain_client_then_close(conn_t *conn)
 	}
 }
 
+/*
+ * Finish the server/client response side without aborting the TCP connection.
+ *
+ * An empty libevent output buffer only means libevent handed the bytes to the
+ * kernel. It does not prove the peer application has read the response yet.
+ * Under high connection churn, immediately freeing/closing the socket after
+ * output drain can still be observed by strict clients as a TCP reset.
+ *
+ * Half-close the write side to signal that no more bytes will be sent, then
+ * keep EV_READ enabled so the peer can close, reset, or hit the idle timeout.
+ *
+ * This is TCP shutdown robustness, not an HTTP protocol requirement.
+ */
 void finish_client_write(conn_t *conn)
 {
 	evutil_socket_t fd = bufferevent_getfd(conn->client);
@@ -115,10 +128,18 @@ void finish_client_write(conn_t *conn)
 	bufferevent_disable(conn->client, EV_WRITE);
 
 	/*
-	 * Keep EV_READ enabled so we can observe client EOF instead of
-	 * closing with unread data and causing RST on some platforms.
+	 * Keep reading briefly after half-closing the write side so the peer can
+	 * close cleanly. Do not wait for the full idle timeout here; otherwise a
+	 * client that never sends EOF/RST can pin this connection too long.
 	 */
 	bufferevent_enable(conn->client, EV_READ);
+
+	struct timeval close_wait_timeout = {
+		.tv_sec = CLOSE_WAIT_TIMEOUT_SEC,
+		.tv_usec = 0,
+	};
+
+	bufferevent_set_timeouts(conn->client, &close_wait_timeout, NULL);
 }
 
 void stream_client_event_cb(struct bufferevent *bev, short events, void *arg)

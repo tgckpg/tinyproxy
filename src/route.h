@@ -14,6 +14,8 @@
 #define BEV_READ_HIGH_WATER (256 * 1024)
 #define BEV_WRITE_RESUME_WATER (128 * 1024)
 
+#define CLOSE_WAIT_TIMEOUT_SEC 2
+
 #define UDP_MAX_PACKET 65535
 
 enum broadcast_reply_mode {

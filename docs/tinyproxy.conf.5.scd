@@ -79,7 +79,8 @@ builtin close
 	- UDP: this is equivalent to discard/drop because UDP has no connection to close.
 
 buitin http_ok
-	Returns "HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\nOK" then close.
+	Returns "HTTP/1.1 200 OK\\r\\nContent-Length: 2\\r\\nConnection: close\\r\\n\\r\\nOK".
+	Waits for client to close the connection.
 
 	Useful for probing
 
