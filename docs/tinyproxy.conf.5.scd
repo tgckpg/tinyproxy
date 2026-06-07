@@ -22,6 +22,18 @@ proxy_v2
 	Enable proxy v2 for upstream.
 	Default: false
 
+sni_sniff
+	Enable passive SNI sniffing for TLS traffic.
+
+	When enabled, tinyproxy inspects the TLS ClientHello from the client
+	and logs the observed Server Name Indication as client_sni=.
+
+	This does not decrypt TLS traffic, modify client data, or verify that
+	the SNI value is truthful. If no usable SNI is observed, client_sni=
+	is left empty and sni_status= describes why.
+
+	Default: false
+
 keep_alive
 	Enable keep alive for tcp.
 	Default: false

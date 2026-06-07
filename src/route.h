@@ -27,6 +27,7 @@ enum broadcast_reply_mode {
 struct route_options {
 	bool proxy_v2;
 	bool keep_alive;
+	bool sni_sniff;
 
 	int idle_timeout_sec;
 	int connect_timeout_sec;

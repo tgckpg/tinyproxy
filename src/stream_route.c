@@ -8,6 +8,7 @@
 #include "worker.h"
 #include "route.h"
 #include "stream_listener.h"
+#include "stream_sniff.h"
 
 int start_stream_route(
 		struct event_base *accept_base,

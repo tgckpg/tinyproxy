@@ -11,6 +11,7 @@
 #include "stream_file.h"
 #include "stream_builtin.h"
 #include "stream_pipe.h"
+#include "stream_sniff.h"
 #include "proxy_proto_v2.h"
 
 void free_conn(conn_t *conn) {
@@ -232,12 +233,20 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	}
 
 	if (events & BEV_EVENT_TIMEOUT) {
+		const char *client_sni = "";
+
+		if (r->opts.sni_sniff) {
+			client_sni = stream_sniff_log_sni(&conn->sniff);
+		}
+
 		LOG_WARN("upstream connection timed out",
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
-				peer_buf, sizeof(peer_buf))
+				peer_buf, sizeof(peer_buf)),
+			"client_sni", _LOGV(client_sni)
 		);
+
 		goto out_free;
 	}
 

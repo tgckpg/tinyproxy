@@ -309,6 +309,7 @@ static int parse_route_options(char *s, struct route_options *opts)
 
 		PARSE_BOOL_OPT("proxy_v2", proxy_v2);
 		PARSE_BOOL_OPT("keep_alive", keep_alive);
+		PARSE_BOOL_OPT("sni_sniff", sni_sniff);
 
 		if (strcmp(tok, "broadcast_reply") == 0) {
 			opts->broadcast_reply = BROADCAST_REPLY_LISTEN;

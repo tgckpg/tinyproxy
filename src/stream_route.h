@@ -6,6 +6,7 @@
 #include <event2/util.h>
 
 #include "compat.h"
+#include "stream_sniff.h"
 
 struct worker;
 struct route;
@@ -28,6 +29,8 @@ typedef struct conn_s {
 
 	struct sockaddr_storage peer_addr;
 	socklen_t peer_addr_len;
+
+	struct stream_sniff sniff;
 
 	bool close_after_client_eof;
 	bool close_client_after_drain;

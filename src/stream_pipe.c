@@ -4,18 +4,21 @@
 #include "route.h"
 #include "stream_conn.h"
 #include "stream_pipe.h"
+#include "stream_sniff.h"
 
 void pipe_client_read_cb(struct bufferevent *client, void *arg)
 {
 	conn_t *conn = arg;
 	struct bufferevent *upstream = conn->upstream;
+	struct evbuffer *src;
+	struct evbuffer *dst;
 
 	if (upstream == NULL) {
 		return;
 	}
 
-	struct evbuffer *src = bufferevent_get_input(client);
-	struct evbuffer *dst = bufferevent_get_output(upstream);
+	src = bufferevent_get_input(client);
+	dst = bufferevent_get_output(upstream);
 
 #ifdef TINYPROXY_DEBUG
 	size_t len = evbuffer_get_length(src);
@@ -27,6 +30,10 @@ void pipe_client_read_cb(struct bufferevent *client, void *arg)
 		"bytes", _LOGV(len)
 	);
 #endif
+
+	if (conn->route->opts.sni_sniff) {
+		stream_sniff_peek_client_input(&conn->sniff, src);
+	}
 
 	evbuffer_add_buffer(dst, src);
 
