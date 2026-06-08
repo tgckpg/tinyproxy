@@ -46,10 +46,21 @@ void route_options_str(const struct route_options *opts, char *buf, size_t bufle
 #define ADD_INT(name, value) \
 	ADD_FMT("%s=%d", name, value)
 
-	ADD_BOOL("proxy_v2", opts->proxy_v2);
-	ADD_INT("idle_timeout", opts->idle_timeout_sec);
-	ADD_INT("connect_timeout", opts->connect_timeout_sec);
-	ADD_BOOL("keep_alive", opts->keep_alive);
+	if(opts->proxy_v2) {
+		ADD_BOOL("proxy_v2", opts->proxy_v2);
+	}
+	if(opts->idle_timeout_sec != ROUTE_DEFAULT_IDLE_TIMEOUT_SEC) {
+		ADD_INT("idle_timeout", opts->idle_timeout_sec);
+	}
+	if(opts->connect_timeout_sec != ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC) {
+		ADD_INT("connect_timeout", opts->connect_timeout_sec);
+	}
+	if(opts->keep_alive) {
+		ADD_BOOL("keep_alive", opts->keep_alive);
+	}
+	if(opts->sni_sniff) {
+		ADD_BOOL("sni_sniff", opts->sni_sniff);
+	}
 
 	switch (opts->broadcast_reply) {
 		case BROADCAST_REPLY_OFF:

@@ -25,12 +25,19 @@ proxy_v2
 sni_sniff
 	Enable passive SNI sniffing for TLS traffic.
 
-	When enabled, tinyproxy inspects the TLS ClientHello from the client
-	and logs the observed Server Name Indication as client_sni=.
+	When enabled, tinyproxy inspects bytes already read from the client's
+	TLS ClientHello and logs the observed Server Name Indication as
+	client_sni=. TLS traffic is not decrypted or modified.
 
-	This does not decrypt TLS traffic, modify client data, or verify that
-	the SNI value is truthful. If no usable SNI is observed, client_sni=
-	is left empty and sni_status= describes why.
+	If no usable SNI is observed, client_sni= contains a bracketed status
+	such as <missing>, <not_tls>, <not_observed>, or <parse_error>.
+
+	This option is mainly intended for debugging routes with shared TLS
+	upstreams, such as investigating which hostname is associated with
+	upstream timeout or reset errors.
+
+	Do not enable this option on stable routes unless the extra diagnostic
+	logging is needed. It adds a small bounded parsing cost to client reads.
 
 	Default: false
 
