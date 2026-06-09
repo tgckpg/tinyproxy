@@ -225,10 +225,10 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	char peer_buf[128];
 
 	if (events & BEV_EVENT_CONNECTED) {
+		conn->upstream_connected = true;
 		set_idle_timeouts(conn, conn->route);
 
 		bufferevent_enable(conn->client, EV_READ | EV_WRITE);
-		bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
 		return;
 	}
 
@@ -239,7 +239,9 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 			client_sni = stream_sniff_log_sni(&conn->sniff);
 		}
 
-		LOG_WARN("upstream connection timed out",
+		LOG_WARN(conn->upstream_connected
+				? "upstream I/O timed out"
+				: "upstream connect timed out",
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
@@ -501,7 +503,10 @@ void worker_adopt_client_fd(struct worker *w, struct worker_stream_client_msg *a
 		}
 	}
 
-	bufferevent_enable(conn->client, EV_READ | EV_WRITE);
+	/*
+	 * Enable upstream writes so the async connect can complete.
+	 * Client reads are enabled only after BEV_EVENT_CONNECTED.
+	 */
 	bufferevent_enable(conn->upstream, EV_READ | EV_WRITE);
 }
 

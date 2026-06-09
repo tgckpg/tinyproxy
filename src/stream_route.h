@@ -32,6 +32,7 @@ typedef struct conn_s {
 
 	struct stream_sniff sniff;
 
+	bool upstream_connected;
 	bool close_after_client_eof;
 	bool close_client_after_drain;
 } conn_t;
