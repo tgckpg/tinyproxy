@@ -69,7 +69,7 @@ jobs:
           name: libevent-tarball
           path: .cache/libevent
 
-      - &extract_libevent_build
+      - &extract_libevent
         name: Extract libevent source
         run: |
           set -eu
@@ -183,7 +183,7 @@ jobs:
 
       - *checkout
       - *download_libevent_source
-      - *extract_libevent_build
+      - *extract_libevent
       - *install_linux_deps
       - *build_static
       - *verify_static
@@ -221,7 +221,7 @@ jobs:
                 python3 \
                 ca-certificates
 
-              make clean all LIBEVENT_SRC=./libevent
+              make clean all
 
               make test \
                 CONCURRENCY=20 \
@@ -469,8 +469,8 @@ jobs:
             gh release upload "$tag" "$asset"
           done
 
-  docker:
-    name: Docker image
+  docker-min:
+    name: Docker image (minimal)
     runs-on: ubuntu-latest
 
     if: startsWith(github.ref, 'refs/tags/v')
@@ -484,7 +484,7 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - *checkout
 
       - name: Download Linux artifacts
         uses: actions/download-artifact@v4
@@ -515,15 +515,18 @@ jobs:
           file rootfs-amd64/usr/bin/tinyproxy
           file rootfs-arm64/usr/bin/tinyproxy
 
-      - name: Set image name
+      - &set_image_name
+        name: Set image name
         run: |
           image="ghcr.io/${GITHUB_REPOSITORY}"
           echo "IMAGE_NAME=${image,,}" >> "$GITHUB_ENV"
 
-      - name: Set up Docker Buildx
+      - &setup_buildx
+        name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Login to GHCR
+      - &login_ghcr
+        name: Login to GHCR
         uses: docker/login-action@v4
         with:
           registry: ghcr.io
@@ -534,7 +537,7 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
-          file: ./github.Dockerfile
+          file: ./dockerfiles/github-minimal.Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: |
@@ -542,4 +545,45 @@ jobs:
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.version=${{ github.ref_name }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  docker-perf:
+    name: Docker image (performance)
+    runs-on: ubuntu-latest
+
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    needs:
+      - libevent-source
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - *checkout
+      - *download_libevent_source
+
+      - name: Stage libevent tarball for Docker build
+        run: |
+          cp ".cache/libevent/${LIBEVENT_TARBALL}" "./${LIBEVENT_TARBALL}"
+
+      - *set_image_name
+      - *setup_buildx
+      - *login_ghcr
+
+      - name: Build and push image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./dockerfiles/github-perf.Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            LIBEVENT_TARBALL=${{ env.LIBEVENT_TARBALL }}
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ github.ref_name }}-debian-slim
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}-debian-slim
             org.opencontainers.image.revision=${{ github.sha }}

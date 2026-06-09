@@ -6,6 +6,7 @@ libevent2/
 __pycache__
 *.log
 *.swp
+*.tar.gz
 .DS_Store
 
 # Generated man pages from scdoc
