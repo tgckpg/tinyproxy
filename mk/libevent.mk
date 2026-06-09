@@ -27,6 +27,7 @@ $(LIBEVENT_PATCH_STAMP):
 
 ifneq ($(strip $(LIBEVENT_SRC)),)
 $(LIBEVENT_CORE_A): $(LIBEVENT_PATCH_STAMP)
+	chmod +x $(LIBEVENT_SRC)/configure
 	cd $(LIBEVENT_SRC) && \
 		AR=$(AR) RANLIB=$(RANLIB) ./configure \
 		--prefix="$(LIBEVENT_PREFIX)" \
