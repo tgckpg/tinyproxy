@@ -25,6 +25,13 @@ tinyproxy \
     -L "udp :31232 udp 127.0.0.1:41232"
 ```
 
+Docker example:
+
+```sh
+docker run --rm ghcr.io/tgckpg/tinyproxy:v0.2.8-debian-slim \
+  -L "tcp :443 tcp 10.0.1.1:443 proxy_v2,keep_alive"
+```
+
 Minecraft Bedrock public-to-LAN proxy
 
 Makes a remote Minecraft Bedrock server appear as a LAN server.
