@@ -37,7 +37,7 @@ void pipe_client_read_cb(struct bufferevent *client, void *arg)
 
 	evbuffer_add_buffer(dst, src);
 
-	if (evbuffer_get_length(dst) >= BEV_READ_HIGH_WATER) {
+	if (evbuffer_get_length(dst) >= STREAM_READ_HIGH_WATER) {
 		LOG_DEBUG("stream pipe backpressure pause",
 			"line", _LOGV(conn->route->line_no),
 			"paused", _LOGV("client"),
@@ -74,7 +74,7 @@ void pipe_upstream_read_cb(struct bufferevent *upstream, void *arg)
 
 	evbuffer_add_buffer(dst, src);
 
-	if (evbuffer_get_length(dst) >= BEV_READ_HIGH_WATER) {
+	if (evbuffer_get_length(dst) >= STREAM_READ_HIGH_WATER) {
 		LOG_DEBUG("stream pipe backpressure pause",
 			"line", _LOGV(conn->route->line_no),
 			"paused", _LOGV("upstream"),
@@ -112,7 +112,7 @@ void pipe_client_write_cb(struct bufferevent *client, void *arg)
 		return;
 	}
 
-	if (upstream != NULL && output_len < BEV_WRITE_RESUME_WATER) {
+	if (upstream != NULL && output_len < STREAM_WRITE_RESUME_WATER) {
 		LOG_DEBUG("stream pipe backpressure resume",
 			"line", _LOGV(conn->route->line_no),
 			"resumed", _LOGV("upstream"),
@@ -139,7 +139,7 @@ void pipe_upstream_write_cb(struct bufferevent *upstream, void *arg)
 		"dst_output_len", _LOGV(output_len)
 	);
 
-	if (client != NULL && output_len < BEV_WRITE_RESUME_WATER) {
+	if (client != NULL && output_len < STREAM_WRITE_RESUME_WATER) {
 		LOG_DEBUG("stream pipe backpressure resume",
 			"line", _LOGV(conn->route->line_no),
 			"resumed", _LOGV("client"),

@@ -1,6 +1,7 @@
 LIBEVENT_SRC ?=
 LIBEVENT_PREFIX := $(BUILD_DIR)/libevent-install
 LIBEVENT_CORE_A := $(LIBEVENT_PREFIX)/lib/libevent_core.a
+LIBEVENT_PATCH_STAMP := $(BUILD_DIR)/libevent-evbuffer-max-read.patch.stamp
 
 ifeq ($(strip $(LIBEVENT_SRC)),)
 LIBEVENT_CPPFLAGS := $(shell $(PKG_CONFIG) --cflags libevent_core 2>/dev/null)
@@ -18,8 +19,14 @@ CPPFLAGS += $(LIBEVENT_CPPFLAGS)
 LDFLAGS  += $(LIBEVENT_LDFLAGS)
 LDLIBS   += $(LIBEVENT_LDLIBS)
 
+$(LIBEVENT_PATCH_STAMP):
+	mkdir -p $(BUILD_DIR)
+	grep -q 'EVBUFFER_MAX_READ.*128 \* 1024' $(LIBEVENT_SRC)/buffer.c || \
+		sed -i.bak 's/#define EVBUFFER_MAX_READ[[:space:]]*4096/#define EVBUFFER_MAX_READ (128 * 1024)/' $(LIBEVENT_SRC)/buffer.c
+	touch $@
+
 ifneq ($(strip $(LIBEVENT_SRC)),)
-$(LIBEVENT_CORE_A):
+$(LIBEVENT_CORE_A): $(LIBEVENT_PATCH_STAMP)
 	cd $(LIBEVENT_SRC) && \
 		AR=$(AR) RANLIB=$(RANLIB) ./configure \
 		--prefix="$(LIBEVENT_PREFIX)" \

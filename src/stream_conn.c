@@ -14,6 +14,9 @@
 #include "stream_sniff.h"
 #include "proxy_proto_v2.h"
 
+#include <event2/bufferevent.h>
+#include <event2/buffer.h>
+
 void free_conn(conn_t *conn) {
 	if (conn == NULL) {
 		return;
@@ -387,6 +390,16 @@ static int connect_upstream(struct bufferevent *bev, const struct endpoint *ep)
 	}
 }
 
+static void tune_stream_bev(struct bufferevent *bev)
+{
+	if (bev == NULL) {
+		return;
+	}
+
+	bufferevent_set_max_single_read(bev, STREAM_IO_CHUNK_SIZE);
+	bufferevent_set_max_single_write(bev, STREAM_IO_CHUNK_SIZE);
+}
+
 void worker_adopt_client_fd(struct worker *w, struct worker_stream_client_msg *ac) {
 	conn_t *conn = calloc(1, sizeof(*conn));
 	if (conn == NULL) {
@@ -432,8 +445,11 @@ void worker_adopt_client_fd(struct worker *w, struct worker_stream_client_msg *a
 		);
 	}
 
-	bufferevent_setwatermark(conn->client, EV_READ, 0, BEV_READ_HIGH_WATER);
-	bufferevent_setwatermark(conn->upstream, EV_READ, 0, BEV_READ_HIGH_WATER);
+	tune_stream_bev(conn->client);
+	tune_stream_bev(conn->upstream);
+
+	bufferevent_setwatermark(conn->client, EV_READ, 0, STREAM_READ_HIGH_WATER);
+	bufferevent_setwatermark(conn->upstream, EV_READ, 0, STREAM_READ_HIGH_WATER);
 
 	bufferevent_setcb(conn->client, pipe_client_read_cb, pipe_client_write_cb, stream_client_event_cb, conn);
 	bufferevent_setcb(conn->upstream, pipe_upstream_read_cb, pipe_upstream_write_cb, stream_upstream_event_cb, conn);

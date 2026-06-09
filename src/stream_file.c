@@ -46,7 +46,7 @@ static void file_write_cb(struct bufferevent *bev, void *arg)
 	struct evbuffer *out = bufferevent_get_output(bev);
 	char buf[FILE_CHUNK_SIZE];
 
-	while (evbuffer_get_length(out) < BEV_READ_HIGH_WATER) {
+	while (evbuffer_get_length(out) < STREAM_READ_HIGH_WATER) {
 		size_t n = fread(buf, 1, sizeof(buf), fc->fp);
 
 		if (n > 0) {
@@ -116,7 +116,7 @@ int start_stream_file(conn_t *conn)
 	fc->conn = conn;
 	fc->fp = fp;
 
-	bufferevent_setwatermark(conn->client, EV_WRITE, 0, BEV_READ_HIGH_WATER);
+	bufferevent_setwatermark(conn->client, EV_WRITE, 0, STREAM_READ_HIGH_WATER);
 	bufferevent_setcb(conn->client, NULL, file_write_cb, file_event_cb, fc);
 	bufferevent_enable(conn->client, EV_WRITE);
 
