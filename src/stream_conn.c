@@ -239,9 +239,31 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 			client_sni = stream_sniff_log_sni(&conn->sniff);
 		}
 
-		LOG_WARN(conn->upstream_connected
-				? "upstream I/O timed out"
-				: "upstream connect timed out",
+		if (!conn->upstream_connected) {
+			LOG_WARN("upstream connect timed out",
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream),
+				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+					peer_buf, sizeof(peer_buf)),
+				"client_sni", _LOGV(client_sni)
+			);
+			goto out_free;
+		}
+
+		if (!client_has_pending_output(conn) && bev_output_len(conn->upstream) == 0) {
+			LOG_DEBUG("stream idle timed out",
+				"listen", _LOGV_ENDPOINT(&r->listen),
+				"upstream", _LOGV_ENDPOINT(&r->upstream),
+				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+					peer_buf, sizeof(peer_buf)),
+				"client_sni", _LOGV(client_sni)
+			);
+			goto out_free;
+		}
+
+		LOG_WARN("stream I/O stalled timed out",
+			"client_output", _LOGV(bev_output_len(conn->client)),
+			"upstream_output", _LOGV(bev_output_len(conn->upstream)),
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
