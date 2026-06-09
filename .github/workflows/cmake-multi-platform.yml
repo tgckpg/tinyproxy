@@ -92,10 +92,10 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all STATIC=1 EXTRA_CFLAGS="-Og -g3 -Wpedantic"
+          make clean all STATIC=1 EXTRA_CFLAGS="-Og -g3 -Wpedantic" LIBEVENT_SRC=./libevent
           cp bin/tinyproxy dist/debug/tinyproxy
 
-          make clean all STATIC=1
+          make clean all STATIC=1 LIBEVENT_SRC=./libevent
           cp bin/tinyproxy dist/prod/tinyproxy
           strip dist/prod/tinyproxy
 
@@ -217,7 +217,7 @@ jobs:
                 python3 \
                 ca-certificates
 
-              make clean all
+              make clean all LIBEVENT_SRC=./libevent
 
               make test \
                 CONCURRENCY=20 \
