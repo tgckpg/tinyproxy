@@ -60,9 +60,6 @@ echo
 echo "test chained tcp->tcp->builtin:"
 echo "  ab -c 10000 -n 100000 http://127.0.0.1:12800/"
 echo
-echo "watch sockets:"
-echo "  ./watch_tinyproxy_sockets.sh"
-echo
 
 exec "$TINYPROXY" \
 	-w"$WORKERS" \
