@@ -23,31 +23,33 @@ jobs:
     name: Prepare libevent source
     runs-on: ubuntu-latest
 
+    env:
+      LIBEVENT_VERSION: 2.1.12-stable
+      LIBEVENT_TARBALL: libevent-2.1.12-stable.tar.gz
+      LIBEVENT_URL: https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
+
     steps:
-      - name: Cache libevent source
-        id: cache-libevent-src
+      - name: Cache libevent tarball
+        id: cache-libevent-tarball
         uses: actions/cache@v4
         with:
-          path: libevent
-          key: libevent-src-${{ env.LIBEVENT_VERSION }}
+          path: .cache/libevent/libevent-2.1.12-stable.tar.gz
+          key: libevent-tarball-2.1.12-stable
 
-      - name: Download and extract libevent
-        if: steps.cache-libevent-src.outputs.cache-hit != 'true'
+      - name: Download libevent tarball
+        if: steps.cache-libevent-tarball.outputs.cache-hit != 'true'
         run: |
           set -eu
+          mkdir -p .cache/libevent
           curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
             "$LIBEVENT_URL" \
-            -o "$LIBEVENT_TARBALL"
-          mkdir -p libevent
-          tar xf "$LIBEVENT_TARBALL" -C libevent --strip-components=1
+            -o ".cache/libevent/$LIBEVENT_TARBALL"
 
-      - name: Upload libevent source
+      - name: Upload libevent tarball
         uses: actions/upload-artifact@v4
         with:
-          name: libevent-src
-          path: libevent
-          if-no-files-found: error
-          retention-days: 1
+          name: libevent-tarball
+          path: .cache/libevent/libevent-2.1.12-stable.tar.gz
 
   linux-musl-x86_64:
     name: Linux musl x86_64 static
@@ -61,19 +63,21 @@ jobs:
         uses: actions/checkout@v4
 
       - &download_libevent_source
-        name: Download libevent source
+        name: Download libevent tarball
         uses: actions/download-artifact@v4
         with:
-          name: libevent-src
-          path: libevent
+          name: libevent-tarball
+          path: .cache/libevent
 
-      - &cache_libevent_build
-        name: Cache bundled libevent build
-        id: cache-libevent-build
-        uses: actions/cache@v4
-        with:
-          path: build/libevent-install
-          key: libevent-build-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBEVENT_VERSION }}-evbuffer128k-v1
+      - &extract_libevent_build
+        name: Extract libevent source
+        run: |
+          set -eu
+          rm -rf libevent
+          mkdir -p libevent
+          tar xf .cache/libevent/libevent-2.1.12-stable.tar.gz \
+            -C libevent \
+            --strip-components=1
 
       - &install_linux_deps
         name: Install deps
@@ -179,7 +183,7 @@ jobs:
 
       - *checkout
       - *download_libevent_source
-      - *cache_libevent_build
+      - *extract_libevent_build
       - *install_linux_deps
       - *build_static
       - *verify_static
