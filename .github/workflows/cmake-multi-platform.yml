@@ -14,11 +14,45 @@ concurrency:
 
 env:
   ARTIFACT_RETENTION_DAYS: 30
+  LIBEVENT_VERSION: 2.1.12-stable
+  LIBEVENT_TARBALL: libevent-2.1.12-stable.tar.gz
+  LIBEVENT_URL: https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
 
 jobs:
+  libevent-source:
+    name: Prepare libevent source
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Cache libevent source
+        id: cache-libevent-src
+        uses: actions/cache@v4
+        with:
+          path: libevent
+          key: libevent-src-${{ env.LIBEVENT_VERSION }}
+
+      - name: Download and extract libevent
+        if: steps.cache-libevent-src.outputs.cache-hit != 'true'
+        run: |
+          set -eu
+          curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
+            "$LIBEVENT_URL" \
+            -o "$LIBEVENT_TARBALL"
+          mkdir -p libevent
+          tar xf "$LIBEVENT_TARBALL" -C libevent --strip-components=1
+
+      - name: Upload libevent source
+        uses: actions/upload-artifact@v4
+        with:
+          name: libevent-src
+          path: libevent
+          if-no-files-found: error
+          retention-days: 1
+
   linux-musl-x86_64:
     name: Linux musl x86_64 static
     runs-on: ubuntu-latest
+    needs: libevent-source
     container:
       image: &alpine_image alpine:3.23
 
@@ -26,13 +60,26 @@ jobs:
       - &checkout
         uses: actions/checkout@v4
 
+      - &download_libevent_source
+        name: Download libevent source
+        uses: actions/download-artifact@v4
+        with:
+          name: libevent-src
+          path: libevent
+
+      - &cache_libevent_build
+        name: Cache bundled libevent build
+        id: cache-libevent-build
+        uses: actions/cache@v4
+        with:
+          path: build/libevent-install
+          key: libevent-build-${{ github.job }}-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBEVENT_VERSION }}-evbuffer128k-v1
+
       - &install_linux_deps
         name: Install deps
         run: |
           apk add --no-cache \
             build-base \
-            libevent-dev \
-            libevent-static \
             python3 \
             strace \
             haproxy
@@ -119,6 +166,7 @@ jobs:
   linux-musl-arm64:
     name: Linux musl arm64 static
     runs-on: ubuntu-24.04-arm
+    needs: libevent-source
     container:
       image: *alpine_image
 
@@ -130,6 +178,8 @@ jobs:
         if: runner.arch == 'ARM64'
 
       - *checkout
+      - *download_libevent_source
+      - *cache_libevent_build
       - *install_linux_deps
       - *build_static
       - *verify_static
