@@ -12,7 +12,7 @@ OUT := $(PROJECT_ROOT)/bin/fuzz
 CORPUS := $(PROJECT_ROOT)/corpus
 SEEDS := seeds
 
-TARGETS := proxy_v2_build file_conf stream_conn
+TARGETS := proxy_v2_build file_conf stream_conn stream_sniff
 BINS := $(addprefix $(OUT)/fuzz_,$(TARGETS))
 
 PROJECT_SRCS := $(filter-out $(SRC_DIR)/tinyproxy.c,$(wildcard $(SRC_DIR)/*.c))
@@ -28,26 +28,15 @@ COMMON_FUZZ_SRC := \
 
 all: $(BINS)
 
-$(OUT)/fuzz_proxy_v2_build: fuzz_proxy_v2_build.c $(PROJECT_SRCS)
+$(OUT):
+	mkdir -p $(OUT)
+
+$(OUT)/fuzz_%: fuzz_%.c $(PROJECT_SRCS) | $(OUT)
 	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
 		-I$(SRC_DIR) \
 		$^ \
 		-o $@ \
 		$(LDFLAGS) $(FUZZ_LDFLAGS) $(LDLIBS)
-
-$(OUT)/fuzz_file_conf: fuzz_file_conf.c $(PROJECT_SRCS)
-	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
-		-I$(SRC_DIR) \
-		$^ \
-		-o $@ \
-		$(LDFLAGS) $(FUZZ_LDFLAGS) $(LDLIBS)
-
-$(OUT)/fuzz_stream_conn: fuzz_stream_conn.c $(PROJECT_SRCS)
-	$(CC) $(CFLAGS) $(FUZZ_CFLAGS) $(CPPFLAGS) \
-		-I$(SRC_DIR) \
-		$^ \
-		-o $@ \
-		$(LDFLAGS) $(LDLIBS)
 
 seed-%: FORCE
 	mkdir -p $(CORPUS)/$*
@@ -56,7 +45,6 @@ seed-%: FORCE
 	fi
 
 run-%: $(OUT)/fuzz_% seed-%
-	mkdir -p $(OUT)
 	$(OUT)/fuzz_$* \
 		$(CORPUS)/$* \
 		-max_total_time=$${MAX_TOTAL_TIME:-60} \
