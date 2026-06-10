@@ -23,11 +23,6 @@ jobs:
     name: Prepare libevent source
     runs-on: ubuntu-latest
 
-    env:
-      LIBEVENT_VERSION: 2.1.12-stable
-      LIBEVENT_TARBALL: libevent-2.1.12-stable.tar.gz
-      LIBEVENT_URL: https://github.com/libevent/libevent/releases/download/release-2.1.12-stable/libevent-2.1.12-stable.tar.gz
-
     steps:
       - name: Cache libevent tarball
         id: cache-libevent-tarball
@@ -97,6 +92,7 @@ jobs:
             BUILD_VER="dev-${GITHUB_SHA::12}"
           fi
           echo "BUILD_VER=${BUILD_VER}" >> "$GITHUB_ENV"
+          echo "Build version: ${BUILD_VER}"
 
       - &build_static
         name: Build
@@ -110,7 +106,7 @@ jobs:
             STATIC=1 \
             EXTRA_CFLAGS="-Og -g3 -Wpedantic" \
             LIBEVENT_SRC=./libevent \
-            VERSION="$BUILD_VER"
+            VERSION="${BUILD_VER}-debug"
 
           cp bin/tinyproxy dist/debug/tinyproxy
 
@@ -257,6 +253,7 @@ jobs:
 
     steps:
       - *checkout
+      - *set_build_version
 
       - name: Build and test on FreeBSD
         uses: vmactions/freebsd-vm@v1
@@ -277,7 +274,7 @@ jobs:
               CONCURRENCY=100 TOTAL=100 FD_LIMIT=2560 \
               LARGE_ROUNDTRIP_SIZE=65536 SEQUENTIAL_CONNECTIONS=100
 
-            gmake clean all
+            gmake clean all VERSION="${BUILD_VER}"
 
             mkdir -p dist/tinyproxy
             cp bin/tinyproxy dist/tinyproxy/
@@ -313,10 +310,16 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all STATIC=0 EXTRA_CFLAGS="-Og -g3 -Wpedantic"
+          make clean all \
+            STATIC=0 \
+            EXTRA_CFLAGS="-Og -g3 -Wpedantic" \
+            VERSION="${BUILD_VER}-debug"
           cp bin/tinyproxy dist/debug/tinyproxy
 
-          make clean all STATIC=0
+          make clean all \
+            STATIC=0 \
+            EXTRA_CFLAGS="-Og -g3 -Wpedantic" \
+            VERSION="$BUILD_VER"
           cp bin/tinyproxy dist/prod/tinyproxy
           strip dist/prod/tinyproxy
 
@@ -345,11 +348,22 @@ jobs:
             mingw-w64-ucrt-x86_64-libevent
             mingw-w64-ucrt-x86_64-python
 
+      - name: Set Build Version
+        shell: msys2 {0}
+        run: |
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            BUILD_VER="${GITHUB_REF_NAME}"
+          else
+            BUILD_VER="dev-${GITHUB_SHA::12}"
+          fi
+          echo "BUILD_VER=${BUILD_VER}" >> "$GITHUB_ENV"
+          echo "Build version: ${BUILD_VER}"
+
       - name: Build
         shell: msys2 {0}
         run: |
           make clean
-          make all
+          make all VERSION="${BUILD_VER}"
 
       - name: Test
         shell: msys2 {0}
