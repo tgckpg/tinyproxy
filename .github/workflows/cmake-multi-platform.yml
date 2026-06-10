@@ -85,6 +85,7 @@ jobs:
 
       - &set_build_version
         name: Set Build Version
+        id: set_build_version
         run: |
           if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
             BUILD_VER="${GITHUB_REF_NAME}"
@@ -92,6 +93,7 @@ jobs:
             BUILD_VER="dev-${GITHUB_SHA::12}"
           fi
           echo "BUILD_VER=${BUILD_VER}" >> "$GITHUB_ENV"
+          echo "build_ver=${BUILD_VER}" >> "$GITHUB_OUTPUT"
           echo "Build version: ${BUILD_VER}"
 
       - &build_static
@@ -264,6 +266,9 @@ jobs:
             pkg install -y gmake pkgconf libevent python3 pcre2 haproxy
           run: |
             set -eu
+
+            BUILD_VER="${{ steps.set_build_version.outputs.build_ver }}"
+            echo "Build version: ${BUILD_VER}"
 
             gmake clean all EXTRA_CFLAGS="-Og -g3 -Wpedantic"
 
