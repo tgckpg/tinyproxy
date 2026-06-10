@@ -4,6 +4,8 @@
 
 #include "klog.h"
 #include "route.h"
+#include "bind.h"
+#include "compat_cpu.h"
 #include "datagram_listener.h"
 #include "datagram_client.h"
 #include "datagram_builtin.h"
@@ -12,29 +14,22 @@
 #ifdef TINYPROXY_DEBUG
 #include <stdlib.h>
 
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 static void tinyproxy_debug_race_sleep(const char *name)
 {
 	const char *want = getenv("TINYPROXY_RACE_SLEEP");
-	const char *delay_s = getenv("TINYPROXY_RACE_SLEEP_US");
-	long delay_us;
+	const char *delay_s = getenv("TINYPROXY_RACE_SLEEP_MS");
+	long delay_ms;
 
 	if (!want || strcmp(want, name) != 0) {
 		return;
 	}
 
-	delay_us = delay_s ? strtol(delay_s, NULL, 10) : 1000;
-	if (delay_us <= 0) {
-		delay_us = 1000;
+	delay_ms = delay_s ? strtol(delay_s, NULL, 10) : 1;
+	if (delay_ms <= 0) {
+		delay_ms = 1;
 	}
 
-#ifdef _WIN32
-	Sleep((DWORD)((delay_us + 999) / 1000));
-#else
-	usleep((useconds_t)delay_us);
-#endif
+	sleep_ms(delay_ms);
 }
 #else
 static void tinyproxy_debug_race_sleep(const char *name)
@@ -439,17 +434,20 @@ static int bind_udp_datagram_listener(struct datagram_route_ctx *ctx)
 		return -err;
 	}
 
-	if (bind(
-			ctx->listen_fd,
-			(const struct sockaddr *)&listen_addr,
-			listen_addr_len
-		) < 0) {
-		int err = EVUTIL_SOCKET_ERROR();
+	rc = bind_with_wait(
+		ctx->listen_fd,
+		(const struct sockaddr *)&listen_addr,
+		listen_addr_len,
+		ctx->route
+	);
+
+	if (rc < 0) {
+		int err = -rc;
 
 		LOG_ERROR("udp bind failed",
 			"err", _LOGV(evutil_socket_error_to_string(err))
 		);
-		return -err;
+		return rc;
 	}
 
 	ctx->local_addr_len = sizeof(ctx->local_addr);

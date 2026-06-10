@@ -300,6 +300,7 @@ static int parse_route_options(char *s, struct route_options *opts)
 
 			PARSE_INT_OPT("idle_timeout", idle_timeout_sec);
 			PARSE_INT_OPT("connect_timeout", connect_timeout_sec);
+			PARSE_INT_OPT("bind_wait", bind_wait_sec);
 			PARSE_ENUM_OPT("broadcast_reply",
 				parse_broadcast_reply_mode,
 				broadcast_reply);

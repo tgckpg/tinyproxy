@@ -5,6 +5,7 @@
 
 #include "klog.h"
 #include "route.h"
+#include "bind.h"
 #include "worker_pool.h"
 #include "stream_listener.h"
 #include "stream_conn.h"
@@ -69,6 +70,8 @@ static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 	const struct route *r = ctx->route;
 	struct sockaddr_storage listen_addr;
 	socklen_t listen_addr_len;
+	evutil_socket_t fd;
+	struct evconnlistener *listener;
 	int rc;
 
 	rc = endpoint_to_sockaddr(&r->listen, &listen_addr, &listen_addr_len);
@@ -78,22 +81,81 @@ static int bind_tcp_stream_listener(struct stream_route_ctx *ctx)
 		return rc;
 	}
 
-	ctx->listener = evconnlistener_new_bind(
+	fd = socket(listen_addr.ss_family, SOCK_STREAM, 0);
+	if (fd < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to create tcp listener socket",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		return err ? -err : -EIO;
+	}
+
+	if (evutil_make_listen_socket_reuseable(fd) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to make tcp listener reusable",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
+	}
+
+	if (evutil_make_socket_nonblocking(fd) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to make tcp listener nonblocking",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
+	}
+
+	rc = bind_with_wait(
+		fd,
+		(struct sockaddr *)&listen_addr,
+		listen_addr_len,
+		r
+	);
+	if (rc != 0) {
+		int err = -rc;
+
+		LOG_ERROR("failed to bind tcp listener socket",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return rc;
+	}
+
+	if (listen(fd, -1) < 0) {
+		int err = EVUTIL_SOCKET_ERROR();
+
+		LOG_ERROR("failed to listen on tcp listener socket",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
+	}
+
+	listener = evconnlistener_new(
 		ctx->accept_base,
 		accept_cb,
 		ctx,
-		LEV_OPT_CLOSE_ON_FREE | LEV_OPT_REUSEABLE,
+		LEV_OPT_CLOSE_ON_FREE,
 		-1,
-		(struct sockaddr *)&listen_addr,
-		listen_addr_len
+		fd
 	);
+	if (listener == NULL) {
+		int err = EVUTIL_SOCKET_ERROR();
 
-	if (ctx->listener == NULL) {
-		LOG_ERROR("evconnlistener_new_bind failed",
-			"listen", _LOGV_ENDPOINT(&r->listen));
-		return -EADDRINUSE;
+		LOG_ERROR("failed to create tcp listener",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"err", _LOGV(evutil_socket_error_to_string(err)));
+		evutil_closesocket(fd);
+		return err ? -err : -EIO;
 	}
 
+	ctx->listener = listener;
 	return 0;
 }
 

@@ -32,6 +32,7 @@ struct route_options {
 
 	int idle_timeout_sec;
 	int connect_timeout_sec;
+	int bind_wait_sec;
 	enum broadcast_reply_mode broadcast_reply;
 };
 

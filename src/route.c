@@ -55,6 +55,9 @@ void route_options_str(const struct route_options *opts, char *buf, size_t bufle
 	if(opts->connect_timeout_sec != ROUTE_DEFAULT_CONNECT_TIMEOUT_SEC) {
 		ADD_INT("connect_timeout", opts->connect_timeout_sec);
 	}
+	if(opts->bind_wait_sec != 0) {
+		ADD_INT("bind_wait", opts->bind_wait_sec);
+	}
 	if(opts->keep_alive) {
 		ADD_BOOL("keep_alive", opts->keep_alive);
 	}

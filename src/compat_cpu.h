@@ -2,5 +2,6 @@
 #define COMPAT_CPU_H
 
 int compat_cpu_count(void);
+void sleep_ms(unsigned int);
 
 #endif

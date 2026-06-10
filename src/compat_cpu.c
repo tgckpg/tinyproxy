@@ -6,6 +6,9 @@
 #include <windows.h>
 #else
 #include <unistd.h>
+
+#include <time.h>
+#include <errno.h>
 #endif
 
 int compat_cpu_count(void)
@@ -29,5 +32,20 @@ int compat_cpu_count(void)
 	}
 
 	return (int)n;
+#endif
+}
+
+void sleep_ms(unsigned int ms)
+{
+#ifdef _WIN32
+	Sleep(ms);
+#else
+	struct timespec ts;
+
+	ts.tv_sec = ms / 1000;
+	ts.tv_nsec = (long)(ms % 1000) * 1000000L;
+
+	while (nanosleep(&ts, &ts) < 0 && errno == EINTR) {
+	}
 #endif
 }

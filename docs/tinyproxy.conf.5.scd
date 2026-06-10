@@ -53,6 +53,17 @@ connect_timeout=SECONDS
 	Connection timeout for both listen and upstream.
 	Default: 5
 
+bind_wait=SECONDS
+	Wait up to SECONDS for the listen address to become available when
+	bind(2) fails with EADDRINUSE.
+
+	This is useful during rolling restarts where a replacement process may
+	start before the previous process has released the listen port. If the
+	address becomes available before the timeout expires, tinyproxy binds it
+	and continues startup. Otherwise startup fails.
+
+	The default is 0, which fails immediately.
+
 broadcast_reply=listen
 	UDP only. Send upstream replies back to the original client from the listening endpoint.
 
