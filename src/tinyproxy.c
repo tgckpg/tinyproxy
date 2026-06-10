@@ -16,6 +16,10 @@
 #include "route.h"
 #include "route_runtime.h"
 
+#ifndef TINYPROXY_VERSION
+#define TINYPROXY_VERSION "dev"
+#endif
+
 static void usage(FILE *out, const char *prog)
 {
 	fprintf(out,
@@ -147,7 +151,7 @@ int main(int argc, char **argv)
 				return 0;
 
 			case 'v':
-				fprintf(stdout, "tinyproxy v0.2.0\n");
+				fprintf(stdout, "tinyproxy %s\n", TINYPROXY_VERSION);
 				free(inline_routes);
 				return 0;
 

@@ -14,16 +14,18 @@ STATIC ?= 0
 
 EXEEXT :=
 WINDOWS_LDLIBS :=
+VERSION ?= dev
 
 ifeq ($(OS),Windows_NT)
 EXEEXT := .exe
 WINDOWS_LDLIBS += -lws2_32
 endif
 
-BASE_CFLAGS ?= -O2 -DNDEBUG -Wall -Wextra -ffunction-sections -fdata-sections
+BASE_CFLAGS ?= -O2 -Wall -Wextra -ffunction-sections -fdata-sections
 
 CFLAGS += $(BASE_CFLAGS)
 CFLAGS += $(EXTRA_CFLAGS)
+CFLAGS += -DTINYPROXY_VERSION=\"$(VERSION)\"
 
 CPPFLAGS += -I$(SRC_DIR)
 

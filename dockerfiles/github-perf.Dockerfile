@@ -1,6 +1,7 @@
 FROM debian:trixie-slim AS build
 
 ARG LIBEVENT_TARBALL
+ARG BUILD_VER
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
@@ -29,7 +30,8 @@ RUN mkdir -p /build/libevent \
 		TOTAL=20 \
 		FD_LIMIT=512 \
 		LARGE_ROUNDTRIP_SIZE=4096 \
-		SEQUENTIAL_CONNECTIONS=20
+		SEQUENTIAL_CONNECTIONS=20 \
+		VERSION=${BUILD_VER}
 
 FROM debian:trixie-slim AS runtime
 

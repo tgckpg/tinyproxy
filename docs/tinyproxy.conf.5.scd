@@ -78,6 +78,12 @@ broadcast_reply=upstream
 
 # ENDPOINTS
 
+tcp [ADDR]:PORT
+	Support IPv4, IPv6
+
+udp [ADDR]:PORT
+	Support IPv4, IPv6
+
 unix /tmp/backend.sock
 	Unix sock
 

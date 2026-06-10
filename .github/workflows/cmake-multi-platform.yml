@@ -88,6 +88,16 @@ jobs:
             strace \
             haproxy
 
+      - &set_build_version
+        name: Set Build Version
+        run: |
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            BUILD_VER="${GITHUB_REF_NAME}"
+          else
+            BUILD_VER="dev-${GITHUB_SHA::12}"
+          fi
+          echo "BUILD_VER=${BUILD_VER}" >> "$GITHUB_ENV"
+
       - &build_static
         name: Build
         shell: sh
@@ -96,10 +106,19 @@ jobs:
 
           mkdir -p dist/debug dist/prod
 
-          make clean all STATIC=1 EXTRA_CFLAGS="-Og -g3 -Wpedantic" LIBEVENT_SRC=./libevent
+          make clean all \
+            STATIC=1 \
+            EXTRA_CFLAGS="-Og -g3 -Wpedantic" \
+            LIBEVENT_SRC=./libevent \
+            VERSION="$BUILD_VER"
+
           cp bin/tinyproxy dist/debug/tinyproxy
 
-          make clean all STATIC=1 LIBEVENT_SRC=./libevent
+          make clean all \
+            STATIC=1 \
+            LIBEVENT_SRC=./libevent \
+            VERSION="$BUILD_VER"
+
           cp bin/tinyproxy dist/prod/tinyproxy
           strip dist/prod/tinyproxy
 
@@ -185,6 +204,7 @@ jobs:
       - *download_libevent_source
       - *extract_libevent
       - *install_linux_deps
+      - *set_build_version
       - *build_static
       - *verify_static
       - *test
@@ -284,6 +304,8 @@ jobs:
         run: |
           brew list libevent >/dev/null 2>&1 || brew install libevent
           brew list haproxy >/dev/null 2>&1 || brew install haproxy
+
+      - *set_build_version
 
       - name: Build
         run: |
@@ -569,6 +591,7 @@ jobs:
           cp ".cache/libevent/${LIBEVENT_TARBALL}" "./${LIBEVENT_TARBALL}"
 
       - *set_image_name
+      - *set_build_version
       - *setup_buildx
       - *login_ghcr
 
@@ -581,6 +604,7 @@ jobs:
           push: true
           build-args: |
             LIBEVENT_TARBALL=${{ env.LIBEVENT_TARBALL }}
+            BUILD_VER=${{ env.BUILD_VER }}
           tags: |
             ${{ env.IMAGE_NAME }}:${{ github.ref_name }}-debian-slim
           labels: |
