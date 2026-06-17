@@ -236,11 +236,6 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	}
 
 	if (events & BEV_EVENT_TIMEOUT) {
-		const char *client_sni = "";
-
-		if (r->opts.sni_sniff) {
-			client_sni = stream_sniff_log_sni(&conn->sniff);
-		}
 
 		if (!conn->upstream_connected) {
 			LOG_WARN("upstream connect timed out",
@@ -248,7 +243,7 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 				"upstream", _LOGV_ENDPOINT(&r->upstream),
 				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
 					peer_buf, sizeof(peer_buf)),
-				"client_sni", _LOGV(client_sni)
+				"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 			);
 			goto out_free;
 		}
@@ -259,7 +254,7 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 				"upstream", _LOGV_ENDPOINT(&r->upstream),
 				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
 					peer_buf, sizeof(peer_buf)),
-				"client_sni", _LOGV(client_sni)
+				"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 			);
 			goto out_free;
 		}
@@ -271,7 +266,7 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
 				peer_buf, sizeof(peer_buf)),
-			"client_sni", _LOGV(client_sni)
+			"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 		);
 
 		goto out_free;
@@ -286,7 +281,10 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 				"client_output", _LOGV(bev_output_len(conn->client)),
 				"upstream_output", _LOGV(bev_output_len(conn->upstream)),
 				"listen", _LOGV_ENDPOINT(&r->listen),
-				"upstream", _LOGV_ENDPOINT(&r->upstream)
+				"upstream", _LOGV_ENDPOINT(&r->upstream),
+				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+					peer_buf, sizeof(peer_buf)),
+				"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 			);
 			goto out_drain_client;
 		}
@@ -296,7 +294,8 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 				"listen", _LOGV_ENDPOINT(&r->listen),
 				"upstream", _LOGV_ENDPOINT(&r->upstream),
 				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
-					peer_buf, sizeof(peer_buf))
+					peer_buf, sizeof(peer_buf)),
+				"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 			);
 			goto out_free;
 		}
@@ -306,7 +305,8 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
-				peer_buf, sizeof(peer_buf))
+				peer_buf, sizeof(peer_buf)),
+			"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 		);
 		goto out_free;
 	}
