@@ -17,6 +17,8 @@
 #include <event2/bufferevent.h>
 #include <event2/buffer.h>
 
+#define SOCKADDR_STRLEN 128
+
 void free_conn(conn_t *conn) {
 	if (conn == NULL) {
 		return;
@@ -70,6 +72,15 @@ static void schedule_conn_idle_timer(conn_t *conn)
 	evtimer_add(conn->idle_ev, &tv);
 }
 
+static size_t bev_output_len(struct bufferevent *bev)
+{
+	if (bev == NULL) {
+		return 0;
+	}
+
+	return evbuffer_get_length(bufferevent_get_output(bev));
+}
+
 static void conn_idle_timeout_cb(evutil_socket_t fd, short events, void *arg)
 {
 	(void)events;
@@ -87,9 +98,34 @@ static void conn_idle_timeout_cb(evutil_socket_t fd, short events, void *arg)
 		return;
 	}
 
-	LOG_DEBUG("stream connection idle timed out",
-		"listen", _LOGV_ENDPOINT(&conn->route->listen),
-		"upstream", _LOGV_ENDPOINT(&conn->route->upstream),
+	const struct route *r = conn->route;
+
+	char peer_buf[SOCKADDR_STRLEN];
+
+	size_t client_output = bev_output_len(conn->client);
+	size_t upstream_output = bev_output_len(conn->upstream);
+
+	if (client_output == 0 && upstream_output == 0) {
+		LOG_DEBUG("stream idle timed out",
+			"listen", _LOGV_ENDPOINT(&r->listen),
+			"upstream", _LOGV_ENDPOINT(&r->upstream),
+			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+				peer_buf, sizeof(peer_buf)),
+			"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
+		);
+
+		free_conn(conn);
+		return;
+	}
+
+	LOG_WARN("stream I/O stalled timed out",
+		"client_output", _LOGV(client_output),
+		"upstream_output", _LOGV(upstream_output),
+		"listen", _LOGV_ENDPOINT(&r->listen),
+		"upstream", _LOGV_ENDPOINT(&r->upstream),
+		"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
+			peer_buf, sizeof(peer_buf)),
+		"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
 	);
 
 	free_conn(conn);
@@ -130,15 +166,6 @@ static int set_socket_keepalive(evutil_socket_t fd, const struct route *r)
 	}
 
 	return 0;
-}
-
-static size_t bev_output_len(struct bufferevent *bev)
-{
-	if (bev == NULL) {
-		return 0;
-	}
-
-	return evbuffer_get_length(bufferevent_get_output(bev));
 }
 
 static bool client_has_pending_output(conn_t *conn)
@@ -282,7 +309,7 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 	conn_t *conn = arg;
 	const struct route *r = conn->route;
 
-	char peer_buf[128];
+	char peer_buf[SOCKADDR_STRLEN];
 
 	if (events & BEV_EVENT_CONNECTED) {
 		conn->upstream_connected = true;
@@ -306,20 +333,7 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 			goto out_free;
 		}
 
-		if (!client_has_pending_output(conn) && bev_output_len(conn->upstream) == 0) {
-			LOG_DEBUG("stream idle timed out",
-				"listen", _LOGV_ENDPOINT(&r->listen),
-				"upstream", _LOGV_ENDPOINT(&r->upstream),
-				"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,
-					peer_buf, sizeof(peer_buf)),
-				"client_sni", _LOGV(r->opts.sni_sniff ? stream_sniff_log_sni(&conn->sniff) : "")
-			);
-			goto out_free;
-		}
-
-		LOG_WARN("stream I/O stalled timed out",
-			"client_output", _LOGV(bev_output_len(conn->client)),
-			"upstream_output", _LOGV(bev_output_len(conn->upstream)),
+		LOG_ERROR("unreachable code reached at BEV_EVENT_TIMEOUT",
 			"listen", _LOGV_ENDPOINT(&r->listen),
 			"upstream", _LOGV_ENDPOINT(&r->upstream),
 			"client_addr", _LOGV_SOCKADDR(&conn->peer_addr, conn->peer_addr_len,

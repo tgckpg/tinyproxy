@@ -58,6 +58,29 @@ async def delayed_response_upload_handler(
 		writer.close()
 		await writer.wait_closed()
 
+async def stalled_upload_handler(
+	reader: asyncio.StreamReader,
+	writer: asyncio.StreamWriter,
+) -> None:
+	try:
+		try:
+			await reader.readuntil(b"\r\n\r\n")
+		except asyncio.IncompleteReadError as e:
+			# Ignore readiness/preflight connections from the test harness.
+			if not e.partial:
+				return
+			raise AssertionError(f"incomplete request headers: {e.partial!r}") from e
+
+		# Read a little bit so the request is definitely established,
+		# then stop consuming the upload body. This should eventually
+		# backpressure tinyproxy and trigger the stalled I/O timeout.
+		await reader.readexactly(64 * 1024)
+
+		await asyncio.sleep(10.0)
+	finally:
+		writer.close()
+		await writer.wait_closed()
+
 async def echo_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
 	try:
 		while True:
@@ -71,14 +94,12 @@ async def echo_handler(reader: asyncio.StreamReader, writer: asyncio.StreamWrite
 		writer.close()
 		await writer.wait_closed()
 
-
 async def close_writer(writer: asyncio.StreamWriter) -> None:
 	try:
 		writer.close()
 		await writer.wait_closed()
-	except ConnectionResetError:
+	except OSError:
 		pass
-
 
 async def read_one_or_eof(reader: asyncio.StreamReader, timeout: float = 3.0) -> bytes:
 	try:
@@ -259,8 +280,87 @@ async def test_tcp_idle_timeout_keeps_long_one_way_upload_open() -> None:
 	finally:
 		await backend_server.close()
 
+async def test_tcp_stalled_timeout_should_close() -> None:
+	proxy_bin = os.environ.get("TINYPROXY_BIN")
+	if not proxy_bin:
+		raise SkipTest("TINYPROXY_BIN is not set")
+
+	conf_text = (
+		f"listen"
+		f" tcp {LISTEN_HOST}:{PROXY_PORT}"
+		f" tcp {LISTEN_HOST}:{BACKEND_PORT}"
+		f" idle_timeout=2\n"
+	)
+
+	backend_server = await start_tracked_stream_server(
+		stalled_upload_handler,
+		LISTEN_HOST,
+		BACKEND_PORT,
+		backlog=128,
+	)
+
+	try:
+		async with run_tinyproxy_with_conf(
+			proxy_bin=proxy_bin,
+			conf_text=conf_text,
+			listen_host=LISTEN_HOST,
+			listen_port=PROXY_PORT,
+			proto="tcp",
+		):
+			reader, writer = await asyncio.open_connection(LISTEN_HOST, PROXY_PORT)
+
+			try:
+				body_size = 512 * 1024 * 1024
+				chunk_size = 1024 * 1024
+
+				req = (
+					b"PUT /v2/test/blobs/uploads/stalled?digest=sha256:deadbeef HTTP/1.1\r\n"
+					b"Host: fake-registry\r\n"
+					b"User-Agent: test-buildkit/stalled-repro\r\n"
+					b"Content-Type: application/octet-stream\r\n"
+					+ f"Content-Length: {body_size}\r\n".encode("ascii")
+					+ b"Connection: close\r\n"
+					+ b"\r\n"
+				)
+
+				writer.write(req)
+				await writer.drain()
+
+				chunk = b"x" * chunk_size
+				sent = 0
+				closed = False
+
+				deadline = asyncio.get_running_loop().time() + 8.0
+
+				while asyncio.get_running_loop().time() < deadline:
+					try:
+						writer.write(chunk)
+						await asyncio.wait_for(writer.drain(), timeout=3.0)
+						sent += len(chunk)
+					except (
+						ConnectionResetError,
+						BrokenPipeError,
+						asyncio.TimeoutError,
+					):
+						closed = True
+						break
+
+				if not closed:
+					got = await read_one_or_eof(reader, timeout=1.0)
+					closed = got == b""
+
+				assert closed, (
+					f"expected stalled upload to be closed by idle timeout; "
+					f"sent={sent}"
+				)
+			finally:
+				await close_writer(writer)
+	finally:
+		await backend_server.close()
+
 TESTS = [
 	("test_tcp_idle_timeout_closes_idle_connection", test_tcp_idle_timeout_closes_idle_connection),
 	("test_tcp_idle_timeout_keeps_active_connection_open", test_tcp_idle_timeout_keeps_active_connection_open),
 	("test_tcp_idle_timeout_keeps_long_one_way_upload_open", test_tcp_idle_timeout_keeps_long_one_way_upload_open),
+	("test_tcp_stalled_timeout_should_close", test_tcp_stalled_timeout_should_close),
 ]
