@@ -23,9 +23,9 @@ void free_conn(conn_t *conn) {
 	}
 
 	if (conn->idle_ev) {
-        event_free(conn->idle_ev);
-        conn->idle_ev = NULL;
-    }
+		event_free(conn->idle_ev);
+		conn->idle_ev = NULL;
+	}
 
 	if (conn->client != NULL) {
 		bufferevent_free(conn->client);
@@ -87,9 +87,9 @@ static void conn_idle_timeout_cb(evutil_socket_t fd, short events, void *arg)
 		return;
 	}
 
-	LOG_WARN("stream connection idle timed out",
+	LOG_DEBUG("stream connection idle timed out",
 		"listen", _LOGV_ENDPOINT(&conn->route->listen),
-		"upstream", _LOGV_ENDPOINT(&conn->route->upstream)
+		"upstream", _LOGV_ENDPOINT(&conn->route->upstream),
 	);
 
 	free_conn(conn);
