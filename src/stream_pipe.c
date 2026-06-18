@@ -35,6 +35,7 @@ void pipe_client_read_cb(struct bufferevent *client, void *arg)
 		stream_sniff_peek_client_input(&conn->sniff, src);
 	}
 
+	conn_touch(conn);
 	evbuffer_add_buffer(dst, src);
 
 	if (evbuffer_get_length(dst) >= STREAM_READ_HIGH_WATER) {
@@ -72,6 +73,7 @@ void pipe_upstream_read_cb(struct bufferevent *upstream, void *arg)
 	);
 #endif
 
+	conn_touch(conn);
 	evbuffer_add_buffer(dst, src);
 
 	if (evbuffer_get_length(dst) >= STREAM_READ_HIGH_WATER) {

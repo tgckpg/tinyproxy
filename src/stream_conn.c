@@ -22,6 +22,11 @@ void free_conn(conn_t *conn) {
 		return;
 	}
 
+	if (conn->idle_ev) {
+        event_free(conn->idle_ev);
+        conn->idle_ev = NULL;
+    }
+
 	if (conn->client != NULL) {
 		bufferevent_free(conn->client);
 	}
@@ -43,15 +48,67 @@ static void set_connect_timeout(conn_t *conn, const struct route *r)
 	bufferevent_set_timeouts(conn->upstream, NULL, &connect_timeout);
 }
 
-static void set_idle_timeouts(conn_t *conn, const struct route *r)
+static void clear_idle_timeout(conn_t *conn)
 {
-	struct timeval idle_timeout = {
-		.tv_sec = r->opts.idle_timeout_sec,
+	bufferevent_set_timeouts(conn->client, NULL, NULL);
+	bufferevent_set_timeouts(conn->upstream, NULL, NULL);
+}
+
+static void schedule_conn_idle_timer(conn_t *conn)
+{
+	if (!conn->idle_ev)
+		return;
+
+	if (conn->route->opts.idle_timeout_sec <= 0)
+		return;
+
+	struct timeval tv = {
+		.tv_sec = conn->route->opts.idle_timeout_sec,
 		.tv_usec = 0,
 	};
 
-	bufferevent_set_timeouts(conn->client, &idle_timeout, &idle_timeout);
-	bufferevent_set_timeouts(conn->upstream, &idle_timeout, &idle_timeout);
+	evtimer_add(conn->idle_ev, &tv);
+}
+
+static void conn_idle_timeout_cb(evutil_socket_t fd, short events, void *arg)
+{
+	(void)events;
+	(void)fd;
+
+	conn_t *conn = arg;
+
+	if (!conn) {
+		return;
+	}
+
+	if (conn->activity_seq != conn->idle_check_seq) {
+		conn->idle_check_seq = conn->activity_seq;
+		schedule_conn_idle_timer(conn);
+		return;
+	}
+
+	LOG_WARN("stream connection idle timed out",
+		"listen", _LOGV_ENDPOINT(&conn->route->listen),
+		"upstream", _LOGV_ENDPOINT(&conn->route->upstream)
+	);
+
+	free_conn(conn);
+}
+
+static int start_conn_idle_timer(conn_t *conn)
+{
+	if (conn->route->opts.idle_timeout_sec <= 0)
+		return 0;
+
+	conn->activity_seq = 1;
+	conn->idle_check_seq = conn->activity_seq;
+
+	conn->idle_ev = evtimer_new(conn->owner->base, conn_idle_timeout_cb, conn);
+	if (!conn->idle_ev)
+		return -1;
+
+	schedule_conn_idle_timer(conn);
+	return 0;
 }
 
 void set_client_idle_timeout(conn_t *conn, const struct route *r)
@@ -229,7 +286,8 @@ void stream_upstream_event_cb(struct bufferevent *bev, short events, void *arg)
 
 	if (events & BEV_EVENT_CONNECTED) {
 		conn->upstream_connected = true;
-		set_idle_timeouts(conn, conn->route);
+		clear_idle_timeout(conn);
+		start_conn_idle_timer(conn);
 
 		bufferevent_enable(conn->client, EV_READ | EV_WRITE);
 		return;
@@ -409,6 +467,9 @@ void worker_adopt_client_fd(struct worker *w, struct worker_stream_client_msg *a
 
 	const struct route *r = ac->route;
 
+	conn->activity_seq = 1;
+	conn->idle_check_seq = 1;
+
 	conn->owner = w;
 	conn->route = r;
 
@@ -582,8 +643,8 @@ int stream_route_adopt_client_for_fuzz(
 	ac.route = r;
 
 	if (peer_addr != NULL &&
-	    peer_addr_len > 0 &&
-	    peer_addr_len <= sizeof(ac.peer_addr)) {
+		peer_addr_len > 0 &&
+		peer_addr_len <= sizeof(ac.peer_addr)) {
 		memcpy(&ac.peer_addr, peer_addr, peer_addr_len);
 		ac.peer_addr_len = peer_addr_len;
 	}

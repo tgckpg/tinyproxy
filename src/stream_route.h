@@ -35,6 +35,10 @@ typedef struct conn_s {
 	bool upstream_connected;
 	bool close_after_client_eof;
 	bool close_client_after_drain;
+
+	uint64_t activity_seq;
+	uint64_t idle_check_seq;
+	struct event *idle_ev;
 } conn_t;
 
 int start_stream_route(
