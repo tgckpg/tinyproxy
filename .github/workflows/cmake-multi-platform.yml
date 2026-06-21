@@ -3,10 +3,10 @@ name: tinyproxy CI
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches: ["master"]
     tags: ["v*"]
   pull_request:
-    branches: ["main"]
+    branches: ["master"]
 
 concurrency:
   group: tinyproxy-${{ github.ref }}
