@@ -67,7 +67,7 @@ void cleanup_idle_datagram_clients(struct datagram_route_ctx *ctx)
 		*pp = c->next;
 		c->next = NULL;
 
-		LOG_INFO("udp client expired",
+		LOG_DEBUG("udp client expired",
 			"client_family", _LOGV(c->client_addr.ss_family),
 			"client_len", _LOGV(c->client_addr_len)
 		);
@@ -437,11 +437,6 @@ struct datagram_client *create_datagram_client(
 		);
 	}
 }
-#else
-	LOG_INFO("udp client created",
-		"client_family", _LOGV(c->client_addr.ss_family),
-		"client_len", _LOGV(c->client_addr_len)
-	);
 #endif
 
 	return c;
